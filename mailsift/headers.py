@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 _ANGLE = re.compile(r"<([^>]*)>")
 _AUTH = re.compile(r"\b(spf|dkim|dmarc|compauth)\s*=\s*([a-zA-Z]+)", re.IGNORECASE)
@@ -72,10 +72,9 @@ def parse_mailto(uri):
     address = unquote(parts.path).strip()
     if not _EMAIL.fullmatch(address):
         return None
-    query = parse_qs(parts.query)
-    subject = (query.get("subject") or ["unsubscribe"])[0].strip() or "unsubscribe"
-    body = (query.get("body") or ["unsubscribe"])[0].strip() or "unsubscribe"
-    return {"address": address, "subject": subject[:200], "body": body[:1000]}
+    # The sender's own subject/body are deliberately ignored: otherwise a
+    # malicious header could make you send an email with text of its choosing.
+    return {"address": address, "subject": "unsubscribe", "body": "unsubscribe"}
 
 
 def emails_in(text) -> list[str]:

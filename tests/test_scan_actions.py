@@ -73,7 +73,7 @@ def test_apply_all_paths(env):
     assert results["team@gearhub.co.uk"]["link"] == "https://www.gearhub.co.uk/preferences"
 
     assert results["claim@amaz0n-prize.top"]["status"] == "done"
-    assert graph.rules[0]["conditions"] == {"senderContains": ["claim@amaz0n-prize.top"]}
+    assert graph.rules[0]["conditions"] == {"fromAddresses": [{"emailAddress": {"address": "claim@amaz0n-prize.top"}}]}
     assert graph.rules[0]["actions"]["moveToFolder"] == FOLDERS["junkemail"]
     assert "newsletter@weeklybyte.io" not in results  # keep = untouched
 

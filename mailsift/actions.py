@@ -125,7 +125,8 @@ class Actions:
                     "displayName": display,
                     "sequence": sequence,
                     "isEnabled": True,
-                    "conditions": {"senderContains": [address]},
+                    # exact match: "senderContains" would also catch e.g. sales-info@x.com when blocking info@x.com
+                    "conditions": {"fromAddresses": [{"emailAddress": {"address": address}}]},
                     "actions": {"moveToFolder": junk, "stopProcessingRules": True},
                 })
                 rule_id = created.get("id")

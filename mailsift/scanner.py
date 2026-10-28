@@ -27,7 +27,7 @@ FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def sender_id(address: str) -> str:
-    return hashlib.sha1(address.encode()).hexdigest()[:12]
+    return hashlib.sha256(address.encode()).hexdigest()[:12]
 
 
 def parse_time(value: str) -> datetime:

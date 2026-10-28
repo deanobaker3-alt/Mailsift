@@ -143,6 +143,7 @@ def _friendly(exc: Exception) -> str:
 def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code=False,
                launcher_secret: str | None = None, shutdown=None) -> Flask:
     app = Flask(__name__, static_folder=None)
+    app.config["MAX_CONTENT_LENGTH"] = 512 * 1024  # the UI never sends more than a few KB
     st = AppState(data_dir, demo=demo, dry_run=dry_run, device_code=device_code)
     session_secret = secrets.token_urlsafe(32)
     csrf_token = secrets.token_urlsafe(32)

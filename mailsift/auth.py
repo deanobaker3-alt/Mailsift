@@ -149,8 +149,8 @@ class Auth:
         try:
             for account in self.app.get_accounts():
                 self.app.remove_account(account)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("Sign-out couldn't clear the token cache (%s)", exc.__class__.__name__)
         with self._lock:
             self.flow = {"state": "idle"}
 

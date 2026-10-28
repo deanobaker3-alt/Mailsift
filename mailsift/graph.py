@@ -46,7 +46,13 @@ class GraphClient:
 
     # -- plumbing --------------------------------------------------------
     def _url(self, path: str) -> str:
-        return path if path.startswith("https://") else self.BASE + path
+        if path.startswith("/"):
+            return self.BASE + path
+        # Absolute URLs only come from Graph's own @odata.nextLink. Refuse
+        # anything else so the access token can never be sent to another host.
+        if path.startswith(self.BASE + "/"):
+            return path
+        raise GraphError(0, "Refusing to send credentials to a non-Graph URL")
 
     def request(self, method, path, params=None, json=None, headers=None):
         for attempt in range(6):

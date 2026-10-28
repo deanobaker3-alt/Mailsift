@@ -1,0 +1,12 @@
+# Opens a pull request when a dependency or a pinned GitHub Action has an update,
+# including security fixes. Merge it and a fresh MailSift.exe is built.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

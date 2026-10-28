@@ -70,8 +70,9 @@ class Store:
     def wipe(self):
         """Forget everything MailSift has recorded."""
         with self._lock:
-            for table in ("actions", "unsubscribed", "blocked"):
-                self.db.execute(f"DELETE FROM {table}")
+            self.db.execute("DELETE FROM actions")
+            self.db.execute("DELETE FROM unsubscribed")
+            self.db.execute("DELETE FROM blocked")
             self.db.commit()
             self.db.execute("VACUUM")  # so deleted rows don't linger in the file
 

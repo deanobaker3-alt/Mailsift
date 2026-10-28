@@ -23,6 +23,8 @@ Works with: Hotmail, Outlook.com, Live and MSN email addresses.
 
 Good to know
 ------------
+- Only use a copy of MailSift.exe you got directly from Dean. Don't run one
+  someone else has passed on.
 - MailSift never sees your password. You sign in on Microsoft's own page.
 - It runs on your computer only. Your emails don't go to anyone, including whoever
   gave you this app. It only reads the "envelope" of each email, never what's inside.

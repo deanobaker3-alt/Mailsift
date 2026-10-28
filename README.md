@@ -124,7 +124,19 @@ Everything lives in `%APPDATA%\MailSift` on Windows and `~/.mailsift` elsewhere.
 
 ## Security
 
-See **SECURITY.md** for the threat model and every control.
+See **SECURITY.md** for the threat model, every control, and how tampering is handled.
+
+**Verify a download:** each build ships `MailSift.exe.sha256`. In a command prompt:
+
+```
+certutil -hashfile MailSift.exe SHA256
+```
+
+The output should match the hash in the `.sha256` file and on the GitHub Actions run page.
+
+## Licence
+
+Proprietary, all rights reserved. See `LICENSE`.
 
 ## Tests
 
@@ -133,9 +145,9 @@ pip install -r requirements-build.txt
 python -m pytest
 ```
 
-58 tests cover:
+62 tests cover:
 - header parsing and classification;
-- the SSRF/rebinding guard;
+- the SSRF/rebinding guard and the Graph token-leak guard;
 - parallel-scan correctness;
 - every action path, including dry run;
 - the launch-key/session lock, CSRF, host checks, quit and forget-me.

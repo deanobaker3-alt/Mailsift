@@ -22,6 +22,9 @@ def default_data_dir() -> Path:
     return Path.home() / ".mailsift"
 
 
+HAS_CONSOLE = sys.stdout is not None  # False in the windowed .exe
+
+
 def setup_logging(data_dir: Path) -> Path:
     """Errors and lifecycle events go to mailsift.log (small, rotated).
     Request lines aren't logged, and nothing personal is written there."""
@@ -77,9 +80,9 @@ def main(argv=None):
 
     def open_browser(port, key):
         url = f"http://127.0.0.1:{port}/?k={key}"
-        if args.no_browser:
+        if args.no_browser and HAS_CONSOLE:
             print(f"Open this link (it works once, for 2 minutes): {url}")
-        else:
+        else:  # without a console, a printed key would land in the log file
             webbrowser.open(url)
 
     existing = running_instance_key(data_dir, secret)

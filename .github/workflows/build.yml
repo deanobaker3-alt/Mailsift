@@ -1,5 +1,11 @@
-# Optional: if you put MailSift on GitHub, this tests and builds MailSift.exe on every push
-# (Actions tab > latest run > Artifacts). Make sure mailsift/client_id.txt holds your ID.
+# Tests, security-scans and builds MailSift.exe on every push.
+# Download: Actions tab > latest run > Artifacts > MailSift-windows.
+#
+# Hardening notes:
+#  * third-party actions are pinned to full commit SHAs (a moved or hijacked tag can't change what runs)
+#  * the workflow token is read-only and checkout doesn't keep git credentials around
+#  * the build fails if tests fail, Bandit finds a medium+ issue, or pip-audit finds a known CVE
+#  * a SHA-256 checksum is published with every build so people can verify their copy
 name: Build MailSift.exe
 on:
   push:
@@ -11,22 +17,61 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      # Client ID can come from a repo variable (Settings > Secrets and variables > Actions > Variables),
-      # so you can set it from a phone without editing files. It isn't a secret, so a variable is fine.
+
+      # The client ID can live in a repo variable (Settings > Secrets and variables > Actions > Variables).
+      # It isn't a secret. It's passed via env, never pasted into the script, so it can't inject commands.
       - name: Use MAILSIFT_CLIENT_ID variable if set
         if: ${{ vars.MAILSIFT_CLIENT_ID != '' }}
         shell: pwsh
-        run: Add-Content -Path mailsift/client_id.txt -Value "`n${{ vars.MAILSIFT_CLIENT_ID }}"
-      - run: python -m pip install -r requirements-build.txt
-      - run: python -m pytest -q
-      - run: python -c "from mailsift.app import bundled_client_id; import sys; sys.exit(0 if bundled_client_id() else 'Put your client ID in mailsift/client_id.txt')"
-      - run: pyinstaller --noconfirm --clean --onefile --windowed --name MailSift --icon mailsift\icon.ico --add-data "mailsift\static;mailsift\static" --add-data "mailsift\client_id.txt;mailsift" mailsift_app.py
-      - uses: actions/upload-artifact@v4
+        env:
+          CLIENT_ID: ${{ vars.MAILSIFT_CLIENT_ID }}
+        run: |
+          if ($env:CLIENT_ID -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') { throw "MAILSIFT_CLIENT_ID isn't a GUID" }
+          Add-Content -Path mailsift/client_id.txt -Value "`n$env:CLIENT_ID"
+
+      - name: Install
+        run: python -m pip install -r requirements-build.txt bandit pip-audit
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Static analysis (Bandit, medium+ fails the build)
+        run: python -m bandit -r mailsift -ll -q
+
+      - name: Dependency audit (pip-audit, known CVEs fail the build)
+        run: python -m pip_audit -r requirements.txt
+
+      - name: Check a client ID is built in
+        run: |
+          python -c "from mailsift.app import bundled_client_id; import sys; sys.exit(0 if bundled_client_id() else 'No client ID - set the MAILSIFT_CLIENT_ID variable or edit mailsift/client_id.txt')"
+
+      - name: Build MailSift.exe
+        run: |
+          python tools/make_version_info.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name MailSift --icon mailsift\icon.ico --version-file build\version_info.txt --add-data "mailsift\static;mailsift\static" --add-data "mailsift\client_id.txt;mailsift" mailsift_app.py
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist\MailSift.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  MailSift.exe" | Out-File -Encoding ascii dist\MailSift.exe.sha256
+          Copy-Item USER_GUIDE.txt dist\
+          "### MailSift.exe SHA-256`n``$hash``" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MailSift-windows
-          path: dist/MailSift.exe
+          path: |
+            dist/MailSift.exe
+            dist/MailSift.exe.sha256
+            dist/USER_GUIDE.txt
+          if-no-files-found: error

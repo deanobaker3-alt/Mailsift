@@ -33,7 +33,7 @@ def test_auth_results_uses_topmost_header_only():
 
 def test_parse_mailto():
     assert parse_mailto("mailto:leave@example.com?subject=Remove%20me") == {
-        "address": "leave@example.com", "subject": "Remove me", "body": "unsubscribe"}
+        "address": "leave@example.com", "subject": "unsubscribe", "body": "unsubscribe"}
     assert parse_mailto("mailto:a@x.com,b@y.com") is None
     assert parse_mailto("https://example.com") is None
 
@@ -104,3 +104,9 @@ def test_ip_link_is_dodgy():
 
 def test_mostly_junk_and_unauthenticated():
     assert _cls(auth={"spf": "softfail", "dmarc": "none"}, junk_count=8, count=10)["kind"] == "dodgy"
+
+
+def test_mailto_ignores_sender_supplied_text():
+    # a hostile header must not choose what gets sent from your account
+    m = parse_mailto("mailto:leave@example.com?subject=Invoice%20overdue&body=Pay%20at%20evil.example")
+    assert m == {"address": "leave@example.com", "subject": "unsubscribe", "body": "unsubscribe"}
