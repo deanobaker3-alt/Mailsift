@@ -46,7 +46,20 @@ class FakePool:
 
     def request(self, method, target, **kwargs):
         self.calls.append((method, target, kwargs))
-        return type("R", (), {"status": self.status})()
+        self.response = FakeResponse(self.status)
+        return self.response
+
+    def close(self):
+        self.closed = True
+
+
+class FakeResponse:
+    """Shaped like a urllib3 response asked for with preload_content=False:
+    the body is NOT available, and it has to be closed."""
+
+    def __init__(self, status):
+        self.status = status
+        self.closed = False
 
     def close(self):
         self.closed = True
@@ -84,3 +97,16 @@ def test_server_error_reported():
     ok, detail = one_click_post("https://unsub.example.com/x", resolver=resolver_for("93.184.216.34"),
                                 pool_factory=lambda *_: FakePool(500))
     assert not ok and "500" in detail
+
+
+def test_hostile_reply_body_is_never_buffered_into_memory():
+    # A sender's unsubscribe endpoint is attacker-controlled. Only the status
+    # code is wanted, so urllib3 must not read the reply, however big it is,
+    # and the response has to be closed so the connection is dropped.
+    pool = FakePool(202)
+    ok, _ = one_click_post("https://unsub.example.com/u", resolver=resolver_for("93.184.216.34"),
+                           pool_factory=lambda *_: pool)
+    assert ok
+    _method, _target, kwargs = pool.calls[0]
+    assert kwargs["preload_content"] is False
+    assert pool.response.closed and pool.closed

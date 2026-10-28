@@ -127,3 +127,52 @@ def test_forget_wipes_new_tables(env):
     actions.apply({sender_id(AMZ): "block"}, scan(graph, store))
     store.wipe()
     assert store.protected() == set() and store.last_undoable() is None
+
+
+# -- the user's own rules are theirs ----------------------------------------------
+def test_a_users_own_similarly_named_rule_is_left_alone(env):
+    graph, store, actions = env
+    mine = {"id": "user-rule-1", "displayName": "MailSift blocklist backup", "sequence": 9,
+            "isEnabled": True, "conditions": {"fromAddresses": [
+                {"emailAddress": {"address": "keep-me@example.com"}}]}, "actions": {}}
+    graph.rules.append(mine)
+    actions.apply({sender_id(AMZ): "block"}, scan(graph, store))
+    names = [r["displayName"] for r in graph.rules]
+    assert "MailSift blocklist backup" in names, "deleted a rule MailSift didn't create"
+    assert mine["conditions"]["fromAddresses"] == [{"emailAddress": {"address": "keep-me@example.com"}}]
+    # ...and its address was not swallowed into MailSift's own blocklist
+    ours = [r for r in graph.rules if r["displayName"] == BLOCKLIST_NAME]
+    assert len(ours) == 1
+    mailsift_addresses = [a["emailAddress"]["address"] for a in ours[0]["conditions"]["fromAddresses"]]
+    assert mailsift_addresses == [AMZ]
+
+
+# -- a partly failed undo can be retried safely ------------------------------------
+def test_restored_mail_is_not_moved_twice_when_the_unblock_fails(env):
+    from mailsift.graph import GraphError
+
+    graph, store, actions = env
+    actions.apply({sender_id(AMZ): "block"}, scan(graph, store))
+    run_id = store.last_undoable()["run_id"]
+    moves_before = len(store.run_items(run_id)[0])
+    assert moves_before, "expected the block to have moved some mail"
+
+    # The mail goes back, then lifting the block fails.
+    original_sync = actions.blocklist.sync
+
+    def failing_sync(*a, **kw):
+        raise GraphError(503, "Service unavailable")
+
+    actions.blocklist.sync = failing_sync
+    first = actions.undo(run_id)
+    assert first["restored"] == moves_before and first["block_error"]
+
+    # The run is still undoable (the block is still on), but the mail it already
+    # put back must not be attempted again with ids Outlook has since changed.
+    assert store.last_undoable()["run_id"] == run_id
+    assert store.run_items(run_id)[0] == []
+
+    actions.blocklist.sync = original_sync
+    second = actions.undo(run_id)
+    assert second["failed"] == 0 and second["unblocked"] == 1
+    assert store.last_undoable() is None

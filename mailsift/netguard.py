@@ -84,11 +84,19 @@ def one_click_post(url: str, timeout=15, resolver=socket.getaddrinfo, pool_facto
                 headers={"Host": host, "User-Agent": USER_AGENT,
                          "Content-Type": "application/x-www-form-urlencoded"},
                 redirect=False,
+                # Only the status code matters. Without this urllib3 reads the
+                # whole reply into memory, so a hostile server could answer an
+                # unsubscribe with gigabytes and exhaust the machine's RAM.
+                preload_content=False,
             )
+            try:
+                status = response.status
+            finally:
+                response.close()
         finally:
             pool.close()
     except Exception as exc:  # TLS failure, timeout, refused...
         return False, f"Couldn't reach the sender ({exc.__class__.__name__})"
-    if response.status < 400:
-        return True, f"HTTP {response.status}"
-    return False, f"Sender's server replied HTTP {response.status}"
+    if status < 400:
+        return True, f"HTTP {status}"
+    return False, f"Sender's server replied HTTP {status}"

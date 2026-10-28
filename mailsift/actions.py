@@ -168,6 +168,10 @@ class Actions:
                 moved, bad = self.graph.move_messages(ids, folder)
                 restored += len(moved)
                 failed += bad
+                # Put back is put back. If the unblock below fails the run stays
+                # undoable, and these ids are stale by then, so forget them now.
+                if moved:
+                    self.store.drop_moves(run_id, [old for old, _new in moved])
             except GraphError:
                 failed += len(ids)
             done += 1

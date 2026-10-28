@@ -16,10 +16,18 @@ class GraphError(Exception):
 
 
 def _error_message(response) -> str:
+    """Graph's error text, or the raw body. Never raises: an odd-shaped error
+    reply must not turn a GraphError into some unrelated exception."""
+    fallback = (getattr(response, "text", "") or "")[:200]
     try:
-        return response.json().get("error", {}).get("message") or response.text[:200]
+        payload = response.json()
     except ValueError:
-        return response.text[:200]
+        return fallback
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict):
+        message = error.get("message")
+        return message if isinstance(message, str) and message else fallback
+    return error if isinstance(error, str) and error else fallback
 
 
 def _mid(message_id: str) -> str:

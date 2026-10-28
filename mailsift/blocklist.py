@@ -11,8 +11,14 @@ MailSift's local history is wiped, and rules left by older versions
 """
 from __future__ import annotations
 
+import re
+
 BLOCKLIST_NAME = "MailSift blocklist"
 LEGACY_PREFIX = "MailSift block: "
+# Matched exactly, not by prefix: a rule of the user's own called something
+# like "MailSift blocklist backup" is theirs, and must not be rewritten or
+# deleted as if MailSift had created it.
+OURS = re.compile(r"^MailSift blocklist(?: \(\d{1,4}\))?$")
 CHUNK = 100  # addresses per rule: keeps each rule well inside Outlook's size limits
 
 
@@ -41,7 +47,7 @@ class Blocklist:
         ours, legacy = [], []
         for rule in self.graph.list_rules():
             name = rule.get("displayName") or ""
-            if name.startswith(BLOCKLIST_NAME):
+            if OURS.match(name):
                 ours.append(rule)
             elif name.startswith(LEGACY_PREFIX):
                 legacy.append(rule)

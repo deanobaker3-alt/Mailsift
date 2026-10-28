@@ -52,3 +52,26 @@ def test_honours_retry_after():
     g = GraphClient(lambda: "T", session_factory=lambda: session, sleep=waits.append)
     assert g.request("GET", "/me") == {"ok": 1}
     assert waits == [7]
+
+
+@pytest.mark.parametrize("payload", [
+    ["unexpected", "list"],                       # not an object at all
+    {"error": "a bare string"},                   # error isn't an object
+    {"error": {"code": "x"}},                     # object with no message
+    {"error": {"message": None}},                 # message isn't text
+    "just a string",
+])
+def test_odd_shaped_error_bodies_still_raise_graph_error(payload):
+    # A malformed error reply must not escape as AttributeError: everything
+    # upstream catches GraphError and would otherwise show "Something went wrong".
+    g, _ = client([FakeResponse(status=400, payload=payload)])
+    with pytest.raises(GraphError) as caught:
+        g.request("GET", "/me")
+    assert caught.value.status == 400
+
+
+def test_error_message_is_used_when_graph_sends_one():
+    g, _ = client([FakeResponse(status=404, payload={"error": {"message": "Folder not found"}})])
+    with pytest.raises(GraphError) as caught:
+        g.request("GET", "/me")
+    assert caught.value.message == "Folder not found"

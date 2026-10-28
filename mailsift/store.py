@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS protected (address TEXT PRIMARY KEY, at TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS undo_moves (run_id INTEGER NOT NULL, message_id TEXT NOT NULL, folder TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS undo_blocks (run_id INTEGER NOT NULL, address TEXT NOT NULL);
+-- A big clean-up writes one undo_moves row per email, so every lookup by run
+-- would otherwise scan the whole table. Added on open, so older files get them.
+CREATE INDEX IF NOT EXISTS undo_moves_by_run ON undo_moves (run_id);
+CREATE INDEX IF NOT EXISTS undo_blocks_by_run ON undo_blocks (run_id);
+CREATE INDEX IF NOT EXISTS runs_undone ON runs (undone, id DESC);
 """
 
 
@@ -129,6 +134,15 @@ class Store:
             moves = self.db.execute("SELECT message_id, folder FROM undo_moves WHERE run_id = ?", (run_id,)).fetchall()
             blocks = [r[0] for r in self.db.execute("SELECT address FROM undo_blocks WHERE run_id = ?", (run_id,))]
         return moves, blocks
+
+    def drop_moves(self, run_id, message_ids):
+        """Forgets moves that have already been put back, so a retry after a
+        partly failed undo doesn't try to move them a second time with ids
+        Outlook has since changed."""
+        with self._lock:
+            self.db.executemany("DELETE FROM undo_moves WHERE run_id = ? AND message_id = ?",
+                                [(run_id, mid) for mid in message_ids])
+            self.db.commit()
 
     def mark_undone(self, run_id):
         with self._lock:
