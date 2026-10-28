@@ -81,6 +81,8 @@ The result should match `MailSift.exe.sha256` on the release. With the [GitHub C
 gh attestation verify MailSift.exe --repo deanobaker3-alt/mailsift
 ```
 
+Each release also includes **`MailSift-sbom.json`**, a full parts list of everything bundled inside.
+
 ## Screenshots
 
 | Scanning | Confirming | Done |

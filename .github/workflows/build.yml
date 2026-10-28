@@ -5,7 +5,9 @@
 #  * third-party actions are pinned to full commit SHAs (a moved or hijacked tag can't change what runs)
 #  * the workflow token is read-only and checkout doesn't keep git credentials around
 #  * the build fails if tests fail, Bandit finds a medium+ issue, or pip-audit finds a known CVE
-#  * a SHA-256 checksum is published with every build so people can verify their copy
+#  * every dependency is pinned to an exact version AND hash (requirements.lock), so a
+#    hijacked package on PyPI can't be substituted into a build
+#  * a SHA-256 checksum and a parts list (SBOM) are published with every build
 #  * public builds get a signed build-provenance attestation (gh attestation verify)
 #  * pushing a tag like v1.6.0 publishes a GitHub Release with the .exe, checksum and guide
 name: Build MailSift.exe
@@ -55,8 +57,10 @@ jobs:
           if ($env:SUPPORT_URL -notmatch '^https://(ko-fi\.com|(www\.)?buymeacoffee\.com|github\.com/sponsors|paypal\.me)/[A-Za-z0-9_-]{1,64}/?$') { throw "MAILSIFT_SUPPORT_URL must be a ko-fi.com, buymeacoffee.com, github.com/sponsors or paypal.me page" }
           Add-Content -Path mailsift/support_url.txt -Value "`n$env:SUPPORT_URL"
 
-      - name: Install
-        run: python -m pip install -r requirements-build.txt bandit pip-audit
+      # --require-hashes: pip refuses anything whose hash isn't in the lock file.
+      - name: Install (hash-pinned)
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
 
       - name: Tests
         run: python -m pytest -q
@@ -65,7 +69,10 @@ jobs:
         run: python -m bandit -r mailsift -ll -q
 
       - name: Dependency audit (pip-audit, known CVEs fail the build)
-        run: python -m pip_audit -r requirements.txt
+        run: python -m pip_audit -r requirements.lock --disable-pip
+
+      - name: Parts list (SBOM)
+        run: python -m pip_audit -r requirements.lock --disable-pip -f cyclonedx-json -o MailSift-sbom.json || python -m pip_audit -r requirements.lock --disable-pip -f cyclonedx-json -o MailSift-sbom.json --no-deps
 
       - name: Tag matches app version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -91,6 +98,7 @@ jobs:
           $hash = (Get-FileHash dist\MailSift.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  MailSift.exe" | Out-File -Encoding ascii dist\MailSift.exe.sha256
           Copy-Item USER_GUIDE.txt dist\
+          Copy-Item MailSift-sbom.json dist\ -ErrorAction SilentlyContinue
           "### MailSift.exe SHA-256`n``$hash``" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       # Signed proof that this exact .exe was built by this workflow from this commit.
@@ -108,6 +116,7 @@ jobs:
             dist/MailSift.exe
             dist/MailSift.exe.sha256
             dist/USER_GUIDE.txt
+            dist/MailSift-sbom.json
           if-no-files-found: error
 
   release:
@@ -140,4 +149,4 @@ jobs:
           should print \`$HASH\`.
           NOTES
           gh release create "$TAG" --repo "$REPO" --title "MailSift $TAG" --notes-file notes.md --generate-notes \
-            dist/MailSift.exe dist/MailSift.exe.sha256 dist/USER_GUIDE.txt
+            dist/MailSift.exe dist/MailSift.exe.sha256 dist/USER_GUIDE.txt dist/MailSift-sbom.json

@@ -15,7 +15,9 @@ MailSift talks to Outlook.com through Microsoft Graph, so it needs an app regist
 
 You don't need a client secret (MailSift is a public client) or pre-added API permissions (users consent at sign-in). The client ID isn't secret either; it appears in every sign-in URL.
 
-**Kill switch:** if a tampered or impersonating build ever appears, disable or delete the registration. Every copy stops being able to sign in at once.
+**Use a separate registration for public releases.** Keep one registration for your own and friends' builds, and a second for anything you publish. If the public one ever gets abused, you can disable it without locking yourself out of your own copy.
+
+**Kill switch:** if a tampered or impersonating build ever appears, disable or delete that registration. Every copy using it stops being able to sign in at once.
 
 ## 2. Build
 
@@ -37,7 +39,7 @@ Put your client ID on its own line in `mailsift/client_id.txt` (and optionally a
 ### From source (any OS, for development)
 
 ```
-pip install -r requirements-build.txt bandit pip-audit
+pip install --require-hashes -r requirements.lock
 python -m mailsift --demo        # pretend mailbox, no sign-in
 python -m mailsift --dry-run     # real mailbox, changes nothing
 python -m pytest -q              # tests
@@ -51,9 +53,23 @@ Other options: `--no-browser` (print a one-time link), `--stay` (don't auto-exit
 2. Tag it: `git tag v1.6.0 && git push origin v1.6.0`. (Or on GitHub: **Releases → Draft a new release → Choose a tag → v1.6.0**.)
 3. The workflow checks the tag matches the version, builds, then publishes a GitHub Release with `MailSift.exe`, `MailSift.exe.sha256`, `USER_GUIDE.txt` and generated notes.
 
-## 4. Repository settings worth having (public repo)
+## 4. Updating dependencies
 
-- **Settings → Code security:** turn on Dependabot alerts, secret scanning with push protection, CodeQL (*default setup*) and **private vulnerability reporting**.
+`requirements.txt` holds the app's direct dependencies and `requirements-build.txt` adds the build and test tools. **`requirements.lock` is what actually gets installed**: every package, including indirect ones, pinned to an exact version and hash.
+
+After changing either input file, regenerate the lock:
+
+```
+pip install uv
+uv pip compile --generate-hashes --universal --python-version 3.12 \
+    --output-file requirements.lock requirements-build.txt
+```
+
+Then re-run the tests. Dependabot raises pull requests when something needs updating.
+
+## 5. Repository settings worth having (public repo)
+
+- **Settings → Code security:** turn on Dependabot alerts, secret scanning with push protection, and **private vulnerability reporting**. (CodeQL and OpenSSF Scorecard already run as workflows here, so leave CodeQL *default setup* off, or it'll duplicate them.)
 - **Settings → Rules → Rulesets** (branch `main`): block force pushes and deletion, and require the *Build MailSift.exe* check to pass on pull requests.
 - **Settings → Actions → General:** *Workflow permissions* set to read-only, and *Require approval for all external contributors* for fork pull requests.
 - **Your account → Settings → Emails:** *Keep my email addresses private* and *Block command line pushes that expose my email*.

@@ -37,7 +37,7 @@ and MailSift only receives tokens.
 | Launch keys in logs | In the windowed `.exe` there's no console, so `--no-browser` never prints a key (it would land in the log). |
 | Oversized local requests | Request bodies are capped at 512 KB. |
 | Device-code phishing (a scammer starts a sign-in with MailSift's public client ID and tricks someone into typing the code) | Device-code sign-in is removed from the app, and "Allow public client flows" is switched off on the app registration, so Microsoft refuses it outright. |
-| Supply chain | Python dependencies are pinned to exact versions. GitHub Actions are pinned to full commit SHAs (a moved or hijacked tag can't change what runs). The workflow token is read-only and checkout doesn't persist credentials. Every build runs the tests, **Bandit** (fails on medium+) and **pip-audit** (fails on known CVEs). Dependabot raises updates weekly. |
+| Supply chain | Every Python dependency, including build and test tools, is pinned to an exact version **and cryptographic hash** in `requirements.lock`, and installed with `pip --require-hashes`: a hijacked release on PyPI, or a tampered download, is rejected before it runs. GitHub Actions are pinned to full commit SHAs, so a moved or hijacked tag can't change what runs. The workflow token is read-only and checkout doesn't persist credentials. Every build runs the tests, **Bandit** (fails on medium+) and **pip-audit** (fails on known CVEs), and publishes a CycloneDX **SBOM** listing everything inside. **CodeQL** and **OpenSSF Scorecard** run on a schedule, with results in the Security tab. Dependabot raises updates weekly. |
 
 ## Tampering, copying and "theft"
 
@@ -62,6 +62,8 @@ obvious** and **having nothing worth stealing inside**:
 - **Only download official releases** from this repo's Releases page. A copy
   from anywhere else might be modified; the checksum and attestation will
   tell you.
+- **See exactly what's inside:** every release ships `MailSift-sbom.json`, a
+  CycloneDX parts list of every bundled component and version.
 - **Licence:** dual-licensed (PolyForm Noncommercial + commercial, see
   `LICENSING.md`). Free copies must keep the copyright notice, and nobody but
   the copyright holder may sell it.
@@ -84,8 +86,9 @@ the signature), and Microsoft **publisher verification**.
 
 - **Malware already running as the user** can do what the user can: read DPAPI-protected
   data, read `launcher.secret`, drive the browser. No desktop app can fully defend against that.
-- The `.exe` is **not code-signed**, so Windows SmartScreen warns about it. Sign it if you
-  distribute widely.
+- The `.exe` is **not code-signed**, so Windows SmartScreen warns about it. Note that
+  signing alone doesn't remove the warning immediately: SmartScreen reputation builds
+  over several releases signed with the same identity.
 - The app registration is **unverified** (no Microsoft publisher verification), so
   Microsoft's consent screen says so.
 - A spammer who owns a real domain can pass DMARC and appear "1-click". Unsubscribing
