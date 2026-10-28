@@ -6,14 +6,15 @@ if not exist .build-venv (
     py -3 -m venv .build-venv || python -m venv .build-venv
 )
 .build-venv\Scripts\python -m pip install --upgrade pip >nul
-.build-venv\Scripts\python -m pip install -r requirements-build.txt bandit pip-audit || goto :fail
+rem --require-hashes: refuses any package whose hash isn't in the lock file.
+.build-venv\Scripts\python -m pip install --require-hashes -r requirements.lock || goto :fail
 
 echo Running tests...
 .build-venv\Scripts\python -m pytest -q || goto :fail
 echo Static analysis...
 .build-venv\Scripts\python -m bandit -r mailsift -ll -q || goto :fail
 echo Dependency audit...
-.build-venv\Scripts\python -m pip_audit -r requirements.txt || goto :fail
+.build-venv\Scripts\python -m pip_audit -r requirements.lock --disable-pip || goto :fail
 
 .build-venv\Scripts\python -c "from mailsift.app import bundled_client_id; import sys; sys.exit(0 if bundled_client_id() else 1)"
 if errorlevel 1 (
