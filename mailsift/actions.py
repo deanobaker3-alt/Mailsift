@@ -101,12 +101,23 @@ class Actions:
             self.store.mark_unsubscribed(address, "mailto")
             return {"status": "done", "outcome": f"Unsubscribe request emailed to {mail['address']}"}
 
-        links = sender["https"] + sender["http"]
+        # The one-click URL is a machine endpoint (RFC 8058), not a web page.
+        # Plenty of senders answer a browser opening it with a 404, so if the
+        # one-click POST failed, hand over any *other* link in preference to it.
+        posted = sender["https"][0] if (sender["kind"] == "oneclick" and sender["https"]) else None
+        links = [u for u in sender["https"] + sender["http"] if u != posted]
+        endpoint_only = False
+        if not links and posted:
+            links, endpoint_only = [posted], True
+
         if links:
             if self.dry_run:
                 return {"status": "dry_run", "outcome": "Would ask you to open the unsubscribe page"}
             self.store.mark_unsubscribed(address, "link")
             note = (" " + "; ".join(notes)) if notes else ""
+            if endpoint_only:
+                note += (" This sender only publishes an automated unsubscribe address, so that link may"
+                         " not open as a web page — if it doesn't, unsubscribe from the email itself or block them.")
             return {"status": "needs_you", "outcome": "Open the sender's unsubscribe page to finish." + note,
                     "link": links[0]}
 

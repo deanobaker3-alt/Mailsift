@@ -110,3 +110,81 @@ def test_hostile_reply_body_is_never_buffered_into_memory():
     _method, _target, kwargs = pool.calls[0]
     assert kwargs["preload_content"] is False
     assert pool.response.closed and pool.closed
+
+
+def test_trust_store_uses_the_os_roots_as_well_as_certifi():
+    # certifi alone fails on any machine where antivirus or a filtering proxy
+    # re-signs HTTPS with a locally-trusted CA, which made every one-click
+    # unsubscribe fail with an SSL error while the browser opened the same
+    # link fine. Verification itself must stay strict.
+    import ssl
+
+    from mailsift.netguard import _trust_store
+    ctx = _trust_store()
+    assert ctx.check_hostname is True
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.get_ca_certs(), "no root certificates loaded at all"
+
+
+def test_pinned_connection_still_rejects_a_certificate_for_another_name(tmp_path):
+    """The whole point of pinning is connecting to a checked IP while still
+    proving the server is who the link claimed. Served locally with a
+    throwaway certificate, because an intercepting proxy will happily mint one
+    for any name asked of it and would hide a regression here."""
+    import datetime
+    import ssl
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    import urllib3
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "real.example.com")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(subject).issuer_name(subject)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName("real.example.com")]), critical=False)
+            .sign(key, hashes.SHA256()))
+    cert_file, key_file = tmp_path / "c.pem", tmp_path / "k.pem"
+    cert_file.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                           serialization.PrivateFormat.TraditionalOpenSSL,
+                                           serialization.NoEncryption()))
+
+    class Quiet(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+
+        def log_message(self, *a):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Quiet)
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(cert_file, key_file)
+    server.socket = server_ctx.wrap_socket(server.socket, server_side=True)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def fetch(expected_name):
+        ctx = ssl.create_default_context(cafile=str(cert_file))
+        ctx.check_hostname, ctx.verify_mode = True, ssl.CERT_REQUIRED
+        pool = urllib3.HTTPSConnectionPool("127.0.0.1", port, server_hostname=expected_name,
+                                           assert_hostname=expected_name, ssl_context=ctx,
+                                           timeout=urllib3.Timeout(total=5), retries=False)
+        try:
+            return pool.request("GET", "/", preload_content=False).status
+        finally:
+            pool.close()
+
+    try:
+        assert fetch("real.example.com") == 200
+        with pytest.raises(Exception):
+            fetch("evil.example.com")
+    finally:
+        server.shutdown()

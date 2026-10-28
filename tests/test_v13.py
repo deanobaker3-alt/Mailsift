@@ -176,3 +176,31 @@ def test_restored_mail_is_not_moved_twice_when_the_unblock_fails(env):
     second = actions.undo(run_id)
     assert second["failed"] == 0 and second["unblocked"] == 1
     assert store.last_undoable() is None
+
+
+# -- a failed one-click must not hand back the machine endpoint -------------------
+def _sender(**kw):
+    base = {"address": "news@example.com", "name": "Example", "kind": "oneclick",
+            "ids": [], "folders": [], "https": [], "http": [], "mailto": []}
+    base.update(kw)
+    return base
+
+
+def test_failed_one_click_prefers_a_real_page_over_the_post_endpoint(env):
+    graph, store, actions = env
+    actions.poster = lambda url: (False, "Couldn't reach the sender (SSLError)")
+    sender = _sender(https=["https://x.example.com/oneClickUnsubscribe?key=abc",
+                            "https://x.example.com/preferences"])
+    result = actions._unsubscribe(sender)
+    assert result["status"] == "needs_you"
+    assert result["link"] == "https://x.example.com/preferences", "handed back the POST-only endpoint"
+
+
+def test_when_the_endpoint_is_the_only_link_the_user_is_warned(env):
+    graph, store, actions = env
+    actions.poster = lambda url: (False, "Couldn't reach the sender (SSLError)")
+    sender = _sender(https=["https://partner-api.example.com/email/oneClickUnsubscribe?key=abc"])
+    result = actions._unsubscribe(sender)
+    assert result["status"] == "needs_you"
+    assert result["link"] == sender["https"][0]           # nothing better to offer
+    assert "may" in result["outcome"] and "not open" in result["outcome"]

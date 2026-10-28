@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import ssl
 from urllib.parse import urlencode, urlsplit
 
 import certifi
@@ -58,11 +59,34 @@ def check_url(url: str, resolver=socket.getaddrinfo) -> tuple[str, str]:
     return host, addresses[0]
 
 
+def _trust_store() -> ssl.SSLContext:
+    """Certificates to trust: the operating system's own, plus certifi's.
+
+    certifi alone isn't enough on a real desktop. Antivirus with HTTPS
+    scanning, and filtering proxies, re-sign traffic with a local CA that
+    Windows trusts and certifi has never heard of. Verifying against certifi
+    only makes every one-click unsubscribe fail with an SSL error on those
+    machines, while the browser sitting next to it opens the same link fine.
+
+    This trusts exactly what the user's browser already trusts. The request
+    carries no credentials and a fixed body, so there's nothing here for an
+    inspecting proxy to learn that it couldn't see anyway.
+    """
+    context = ssl.create_default_context()      # loads the OS trust store
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    try:
+        context.load_verify_locations(cafile=certifi.where())
+    except OSError:                              # certifi missing: OS roots still apply
+        pass
+    return context
+
+
 def _pinned_pool(ip: str, host: str, timeout: float):
     return urllib3.HTTPSConnectionPool(
         ip, 443,
         server_hostname=host, assert_hostname=host,       # TLS still verifies the real name
-        cert_reqs="CERT_REQUIRED", ca_certs=certifi.where(),
+        ssl_context=_trust_store(),
         timeout=urllib3.Timeout(total=timeout), retries=False, maxsize=1,
     )
 
