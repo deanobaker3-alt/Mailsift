@@ -74,7 +74,15 @@ a { color: var(--cyan); } a:hover { color: #B3F3FF; }
 .top { background: rgba(7, 4, 15, 0.9); border-bottom: 4px solid var(--edge); box-shadow: 0 4px 0 var(--line); position: sticky; top: 0; z-index: 5; }
 @media (max-width: 640px) { .top { position: static; } }
 .top-inner { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding-top: 12px; padding-bottom: 12px; }
-.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* The logo doubles as the home button, so it has to look pressable without
+   turning into a button-shaped box in the middle of the title bar. */
+.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+         background: none; border: 0; padding: 4px 6px; margin: -4px -6px;
+         font: inherit; text-align: left; cursor: pointer; }
+.brand:hover .brand-name, .brand:focus-visible .brand-name { color: var(--green); }
+.brand:focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
+.brand:active { transform: translateY(2px); }
+@media (prefers-reduced-motion: reduce) { .brand:active { transform: none; } }
 .brand img { image-rendering: pixelated; }
 .brand-name { font-family: var(--pixel); font-size: 16px; letter-spacing: 1px; color: var(--amber); text-shadow: 3px 3px 0 var(--edge), 3px 3px 0 #B5179E; }
 .brand-sub { color: var(--dim); font-size: 20px; }

@@ -45,6 +45,7 @@
   const S = {
     status: null, scope: '12m', senders: [], choices: {}, tab: 'all', q: '', sort: 'count',
     limit: PAGE, timer: null, quitting: false,
+    stale: false,   // true once a clean-up has run: the sender list no longer matches the mailbox
   };
 
   // ---------------------------------------------------------------- helpers
@@ -290,6 +291,10 @@
       h('p', { class: 'lede' }, 'You can close this tab. Launch MailSift again any time to play another round.'),
       h('p', { class: 'hint' }, '> exit 0')));
   }
+  // The logo is the home button. boot() re-reads the server's state, so if a
+  // scan, clean-up or undo is running it lands back on that, and if there are
+  // results it reopens them rather than losing them.
+  $('home').addEventListener('click', () => { stopPolling(); boot(); });
   $('quit').addEventListener('click', quit);
   $('quit-anon').addEventListener('click', quit);
   $('signout').addEventListener('click', async () => {
@@ -419,6 +424,16 @@
         h('div', { class: 'radio-row', role: 'group', 'aria-label': 'Scan range' }, opts),
         h('p', { class: 'press' }, 'PRESS START'),
         h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: startScan }, '▶ start scan'),
+        // Coming back here from the review screen used to strand you: the
+        // results were still held, but nothing offered a way back to them.
+        S.senders.length && !S.stale
+          ? h('button', { type: 'button', class: 'btn', onclick: () => renderReview() },
+              `← back to your ${fmt(S.senders.length)} results`)
+          : null,
+        S.senders.length && !S.stale
+          ? h('p', { class: 'hint' }, 'Your last scan is still here. Starting a new one replaces it.')
+          : null,
+        S.stale ? h('p', { class: 'hint' }, 'Your last results are out of date now you’ve made changes. Scan again to see where things stand.') : null,
         h('p', { class: 'hint' }, 'read-only · headers only · 4 parallel workers')),
       undoPanel(),
       privacyPanel());
@@ -493,6 +508,7 @@
   }
 
   function loadResults(job) {
+    S.stale = false;   // fresh from the server, so they're safe to go back to
     S.senders = job.senders || [];
     S.scope = job.scope || S.scope;
     S.limit = PAGE;
@@ -797,6 +813,9 @@
   }
 
   function renderDone(job) {
+    // Mail has moved and senders have been blocked, so the sender list in
+    // memory no longer reflects the mailbox: don't offer to go back to it.
+    if (!job.dry_run) S.stale = true;
     const results = job.results || [];
     const ok = (r) => ['done', 'dry_run', 'needs_you'].includes(r.status);
     const unsubbed = results.filter((r) => r.action !== 'block' && ok(r)).length;
