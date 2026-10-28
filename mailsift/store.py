@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS actions (
 );
 CREATE TABLE IF NOT EXISTS unsubscribed (address TEXT PRIMARY KEY, at TEXT NOT NULL, method TEXT);
 CREATE TABLE IF NOT EXISTS blocked (address TEXT PRIMARY KEY, at TEXT NOT NULL, rule_id TEXT);
+CREATE TABLE IF NOT EXISTS protected (address TEXT PRIMARY KEY, at TEXT NOT NULL);
+-- undo: one row per clean-up, plus what it moved (and from where) and blocked
+CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS undo_moves (run_id INTEGER NOT NULL, message_id TEXT NOT NULL, folder TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS undo_blocks (run_id INTEGER NOT NULL, address TEXT NOT NULL);
 """
 
 
@@ -67,12 +72,81 @@ class Store:
         with self._lock:
             return {row[0] for row in self.db.execute("SELECT address FROM blocked")}
 
+    # -- never-touch list --------------------------------------------------
+    def protected(self) -> set[str]:
+        with self._lock:
+            return {row[0] for row in self.db.execute("SELECT address FROM protected")}
+
+    def set_protected(self, address, on: bool):
+        with self._lock:
+            if on:
+                self.db.execute("INSERT OR IGNORE INTO protected (address, at) VALUES (?,?)", (address, now_iso()))
+            else:
+                self.db.execute("DELETE FROM protected WHERE address = ?", (address,))
+            self.db.commit()
+
+    def unmark_blocked(self, addresses):
+        with self._lock:
+            self.db.executemany("DELETE FROM blocked WHERE address = ?", [(a,) for a in addresses])
+            self.db.commit()
+
+    # -- undo ----------------------------------------------------------------
+    def start_run(self) -> int:
+        with self._lock:
+            cur = self.db.execute("INSERT INTO runs (at) VALUES (?)", (now_iso(),))
+            self.db.commit()
+            return cur.lastrowid
+
+    def record_moves(self, run_id, moves):
+        """moves: [(new_message_id, original_folder_id), ...]"""
+        with self._lock:
+            self.db.executemany("INSERT INTO undo_moves (run_id, message_id, folder) VALUES (?,?,?)",
+                                [(run_id, mid, folder) for mid, folder in moves])
+            self.db.commit()
+
+    def record_block(self, run_id, address):
+        with self._lock:
+            self.db.execute("INSERT INTO undo_blocks (run_id, address) VALUES (?,?)", (run_id, address))
+            self.db.commit()
+
+    def last_undoable(self):
+        """The most recent clean-up that moved or blocked something and hasn't been undone."""
+        with self._lock:
+            row = self.db.execute(
+                "SELECT r.id, r.at, "
+                " (SELECT COUNT(*) FROM undo_moves m WHERE m.run_id = r.id),"
+                " (SELECT COUNT(*) FROM undo_blocks b WHERE b.run_id = r.id) "
+                "FROM runs r WHERE r.undone = 0 AND ("
+                " EXISTS (SELECT 1 FROM undo_moves m WHERE m.run_id = r.id) OR"
+                " EXISTS (SELECT 1 FROM undo_blocks b WHERE b.run_id = r.id)) "
+                "ORDER BY r.id DESC LIMIT 1").fetchone()
+        if not row:
+            return None
+        return {"run_id": row[0], "at": row[1], "moved": row[2], "blocked": row[3]}
+
+    def run_items(self, run_id):
+        with self._lock:
+            moves = self.db.execute("SELECT message_id, folder FROM undo_moves WHERE run_id = ?", (run_id,)).fetchall()
+            blocks = [r[0] for r in self.db.execute("SELECT address FROM undo_blocks WHERE run_id = ?", (run_id,))]
+        return moves, blocks
+
+    def mark_undone(self, run_id):
+        with self._lock:
+            self.db.execute("UPDATE runs SET undone = 1 WHERE id = ?", (run_id,))
+            self.db.execute("DELETE FROM undo_moves WHERE run_id = ?", (run_id,))
+            self.db.execute("DELETE FROM undo_blocks WHERE run_id = ?", (run_id,))
+            self.db.commit()
+
     def wipe(self):
         """Forget everything MailSift has recorded."""
         with self._lock:
             self.db.execute("DELETE FROM actions")
             self.db.execute("DELETE FROM unsubscribed")
             self.db.execute("DELETE FROM blocked")
+            self.db.execute("DELETE FROM protected")
+            self.db.execute("DELETE FROM runs")
+            self.db.execute("DELETE FROM undo_moves")
+            self.db.execute("DELETE FROM undo_blocks")
             self.db.commit()
             self.db.execute("VACUUM")  # so deleted rows don't linger in the file
 

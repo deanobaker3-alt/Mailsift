@@ -118,7 +118,8 @@ class Scanner:
                 future.result()  # re-raises the first worker error, if any
 
         progress(checked=state["checked"], found=len(state["groups"]), total=total)
-        result = self._build(scope, state["checked"], state["groups"], state["unsubscribed"], self.store.blocked())
+        result = self._build(scope, state["checked"], state["groups"], state["unsubscribed"],
+                             self.store.blocked(), self.store.protected())
         result.cancelled = cancelled()
         return result
 
@@ -146,7 +147,7 @@ class Scanner:
             if g is None:
                 g = state["groups"][address] = {
                     "address": address, "names": Counter(), "count": 0, "read": 0, "junk": 0,
-                    "newest": when, "oldest": when, "ids": [], "after_unsub": 0,
+                    "newest": when, "oldest": when, "ids": [], "folders": [], "after_unsub": 0,
                     "auth": parse_auth_results(hmap.get("authentication-results")), "auth_at": when,
                     "unsub_at": None, "one_click": False, "https": [], "http": [], "mailto": [],
                 }
@@ -162,6 +163,7 @@ class Scanner:
             g["read"] += 1 if msg.get("isRead") else 0
             g["junk"] += 1 if state["junk"] and msg.get("parentFolderId") == state["junk"] else 0
             g["ids"].append(msg["id"])
+            g["folders"].append(msg.get("parentFolderId") or "inbox")
             g["names"][(email.get("name") or "").strip()] += 1
             g["newest"] = max(g["newest"], when)
             g["oldest"] = min(g["oldest"], when)
@@ -170,7 +172,7 @@ class Scanner:
             if unsub_at and when > parse_time(unsub_at) + IGNORE_GRACE:
                 g["after_unsub"] += 1
 
-    def _build(self, scope, checked, groups, unsubscribed, blocked) -> ScanResult:
+    def _build(self, scope, checked, groups, unsubscribed, blocked, protected=frozenset()) -> ScanResult:
         senders, private = [], {}
         for address, g in groups.items():
             name = next((n for n, _ in g["names"].most_common() if n), "") or address
@@ -199,9 +201,11 @@ class Scanner:
                 "ignored_count": g["after_unsub"],
                 "unsubscribed_at": unsubscribed.get(address),
                 "blocked": address in blocked,
+                "protected": address in protected,
             })
             private[sid] = {
-                "address": address, "name": name, "kind": verdict["kind"], "ids": list(g["ids"]),
+                "address": address, "name": name, "kind": verdict["kind"],
+                "ids": list(g["ids"]), "folders": list(g["folders"]),
                 "https": g["https"], "http": g["http"], "mailto": g["mailto"],
             }
         senders.sort(key=lambda s: (-s["count"], s["address"]))

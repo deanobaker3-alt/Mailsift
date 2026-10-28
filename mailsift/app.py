@@ -69,6 +69,7 @@ class AppState:
         self.lock = threading.Lock()
         self.scan_job = {"state": "idle", "log": []}
         self.apply_job = {"state": "idle"}
+        self.undo_job = {"state": "idle"}
         self.scan_cancel = threading.Event()
         self.last_scan = None
         self.last_seen = time.monotonic()
@@ -124,7 +125,7 @@ class AppState:
     def busy(self) -> bool:
         auth_pending = bool(self.auth) and self.auth.flow.get("state") == "pending"
         return (self.scan_job.get("state") == "running" or self.apply_job.get("state") == "running"
-                or auth_pending)
+                or self.undo_job.get("state") == "running" or auth_pending)
 
     def idle_seconds(self) -> float:
         return time.monotonic() - self.last_seen
@@ -254,6 +255,8 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
             token_store=("encrypted" if getattr(st.auth, "cache_encrypted", False) else "memory-only") if configured else None,
             scan_state=st.scan_job.get("state"),
             apply_state=st.apply_job.get("state"),
+            undo_state=st.undo_job.get("state"),
+            undo=(st.store.last_undoable() if signed_in and not st.dry_run else None),
             has_results=st.last_scan is not None,
         )
 
@@ -278,6 +281,7 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
             st.last_scan = None
             st.scan_job = {"state": "idle", "log": []}
             st.apply_job = {"state": "idle"}
+            st.undo_job = {"state": "idle"}
         log.info("Forget-me: sign-in and history wiped")
         return jsonify(ok=True)
 
@@ -374,6 +378,8 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
         with st.lock:
             if st.apply_job.get("state") == "running":
                 return jsonify(st.apply_job)
+            if st.undo_job.get("state") == "running":
+                return jsonify(error="busy", message="Wait for the undo to finish first"), 409
             st.apply_job = {"state": "running", "done": 0, "results": [], "dry_run": st.dry_run,
                             "total": sum(1 for v in choices.values() if v != "keep")}
         scan = st.last_scan
@@ -397,6 +403,55 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
     @app.get("/api/apply")
     def apply_status():
         return jsonify(st.apply_job)
+
+    # -- never-touch list -------------------------------------------------
+    @app.post("/api/protect")
+    def protect():
+        body = request.get_json(silent=True) or {}
+        sid, on = str(body.get("id", "")), bool(body.get("on"))
+        scan = st.last_scan
+        sender = scan.private.get(sid) if scan else None
+        if sender is None:
+            return jsonify(error="unknown_sender", message="Scan again, then try that"), 400
+        st.store.set_protected(sender["address"], on)
+        for s in scan.senders:
+            if s["id"] == sid:
+                s["protected"] = on
+        return jsonify(ok=True, protected=on)
+
+    # -- undo ----------------------------------------------------------------
+    @app.post("/api/undo")
+    def start_undo():
+        if st.dry_run:
+            return jsonify(error="dry_run", message="Nothing to undo in a dry run"), 400
+        run_id = (request.get_json(silent=True) or {}).get("run_id")
+        last = st.store.last_undoable()
+        if not last or last["run_id"] != run_id:
+            return jsonify(error="stale", message="That clean-up can't be undone any more"), 409
+        with st.lock:
+            if st.busy():
+                return jsonify(error="busy", message="Wait for the current job to finish first"), 409
+            st.undo_job = {"state": "running", "done": 0, "total": 1}
+
+        def progress(done, total):
+            st.undo_job.update(done=done, total=total)
+
+        def run():
+            try:
+                summary = st.actions().undo(run_id, progress=progress)
+                with st.lock:
+                    st.last_scan = None  # message ids changed: the old scan is stale
+                st.undo_job = {"state": "done", **summary}
+            except Exception as exc:
+                log.exception("Undo failed")
+                st.undo_job = {"state": "error", "message": _friendly(exc)}
+
+        threading.Thread(target=run, daemon=True, name="undo").start()
+        return jsonify(st.undo_job)
+
+    @app.get("/api/undo")
+    def undo_status():
+        return jsonify(st.undo_job)
 
     @app.get("/api/history")
     def history():

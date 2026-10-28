@@ -175,3 +175,26 @@ def test_config_validates_client_id(tmp_path, monkeypatch):
     assert post(c, "/api/config", {"client_id": "11111111-2222-3333-4444-555555555555"}).status_code == 200
     status = c.get(BASE + "/api/status").get_json()
     assert status["configured"] is True and status["signed_in"] is False
+
+
+def test_protect_and_undo_endpoints(client):
+    post(client, "/api/scan", {"scope": "12m"})
+    senders = {s["address"]: s for s in wait_for(client, "/api/scan")["senders"]}
+    crust, amz = senders["offers@crustandco.co.uk"], senders["claim@amaz0n-prize.top"]
+
+    assert post(client, "/api/protect", {"id": crust["id"], "on": True}).get_json()["protected"] is True
+    assert client.get(BASE + "/api/scan").get_json()["senders"][0]["protected"] is True
+
+    post(client, "/api/apply", {"choices": {crust["id"]: "unsubdel", amz["id"]: "block"}})
+    results = {r["address"]: r for r in wait_for(client, "/api/apply")["results"]}
+    assert results[crust["address"]]["status"] == "failed"      # protected
+    assert results[amz["address"]]["status"] == "done"
+
+    undo = client.get(BASE + "/api/status").get_json()["undo"]
+    assert undo["blocked"] == 1 and undo["moved"] == 12
+    assert post(client, "/api/undo", {"run_id": undo["run_id"] + 99}).status_code == 409   # stale id refused
+    assert post(client, "/api/undo", {"run_id": undo["run_id"]}).status_code == 200
+    job = wait_for(client, "/api/undo")
+    assert job["restored"] == 12 and job["unblocked"] == 1
+    status = client.get(BASE + "/api/status").get_json()
+    assert status["undo"] is None and status["has_results"] is False

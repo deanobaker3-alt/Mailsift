@@ -1,17 +1,21 @@
-"""Carries out the choices made in the review screen.
+"""Carries out the choices made in the review screen, and undoes them.
 
-Nothing is ever permanently deleted: "clear old" moves mail to Deleted Items,
-and blocking moves it to Junk, so everything can be recovered in Outlook.
+Nothing is ever permanently deleted: "purge" moves mail to Deleted Items and
+blocking moves it to Junk. Every live clean-up is recorded as a "run" (which
+messages moved, from which folder, and who was blocked) so it can be undone.
+Unsubscribes can't be undone: that request has already gone to the sender.
 """
 from __future__ import annotations
 
+from collections import defaultdict
+
+from .blocklist import Blocklist
 from .classify import ALLOWED_ACTIONS
 from .graph import GraphError
 from .headers import parse_mailto
 from .netguard import one_click_post
 
 ACTIONS = {"keep", "unsub", "unsubdel", "block"}
-RULE_PREFIX = "MailSift block: "
 
 
 class Actions:
@@ -20,25 +24,37 @@ class Actions:
         self.store = store
         self.dry_run = dry_run
         self.poster = poster
+        self.blocklist = Blocklist(graph)
+        self.run_id = None
 
+    # ------------------------------------------------------------------ apply
     def apply(self, choices: dict[str, str], scan, progress=None) -> list[dict]:
         progress = progress or (lambda **_: None)
         todo = [(sid, act) for sid, act in choices.items() if act != "keep"]
-        results = []
+        self.run_id = None if self.dry_run else self.store.start_run()
+        protected = self.store.protected()
+        results, pending_blocks = [], []
         for done, (sid, action) in enumerate(todo, start=1):
-            result = self._apply_one(sid, action, scan)
+            result = self._apply_one(sid, action, scan, protected)
+            if result.get("status") == "pending":
+                pending_blocks.append(result)
             results.append(result)
             progress(done=done, total=len(todo), result=result)
+        if pending_blocks:
+            self._finish_blocks(pending_blocks)
         return results
 
-    # ------------------------------------------------------------------
-    def _apply_one(self, sid, action, scan) -> dict:
+    def _apply_one(self, sid, action, scan, protected) -> dict:
         sender = scan.private.get(sid) if scan else None
         if sender is None:
             return {"id": sid, "name": "?", "address": "", "action": action, "status": "failed",
                     "outcome": "Not in the latest scan. Scan again and retry."}
         base = {"id": sid, "name": sender["name"], "address": sender["address"], "action": action}
 
+        if sender["address"] in protected:
+            result = {**base, "status": "failed", "outcome": "On your never-touch list, so left alone"}
+            self._log(sender, action, result)
+            return result
         if action not in ACTIONS or action not in ALLOWED_ACTIONS.get(sender["kind"], {"keep"}):
             result = {**base, "status": "failed", "outcome": "Not allowed for this sender (looks dodgy: block it instead)"}
             self._log(sender, action, result)
@@ -53,14 +69,15 @@ class Actions:
                     result["outcome"] += self._move_note(sender, "deleteditems", "Deleted Items")
         except GraphError as exc:
             result = {**base, "status": "failed", "outcome": f"Microsoft Graph refused: {exc.message}"}
-        self._log(sender, action, result)
+        if result["status"] != "pending":
+            self._log(sender, action, result)
         return result
 
     def _log(self, sender, action, result):
         self.store.log(sender["address"], sender["name"], action, result["status"],
                        result.get("outcome", ""), self.dry_run)
 
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------ unsubscribe
     def _unsubscribe(self, sender) -> dict:
         address = sender["address"]
         notes = []
@@ -95,45 +112,79 @@ class Actions:
 
         return {"status": "failed", "outcome": "; ".join(notes) or "No working unsubscribe option found"}
 
+    # ------------------------------------------------------------------ moves
     def _move_note(self, sender, folder, label) -> str:
-        if not sender["ids"]:
+        ids = sender["ids"]
+        if not ids:
             return ""
         if self.dry_run:
-            return f". Would move {len(sender['ids'])} old emails to {label}"
+            return f". Would move {len(ids)} old emails to {label}"
         destination = self.graph.well_known_folder_id(folder) or folder
-        moved, failed = self.graph.move_messages(sender["ids"], destination)
-        note = f". Moved {moved} old emails to {label}"
+        origin = dict(zip(ids, sender.get("folders") or []))
+        moved, failed = self.graph.move_messages(ids, destination)
+        if self.run_id is not None and moved:
+            self.store.record_moves(self.run_id, [(new, origin.get(old, "inbox")) for old, new in moved])
+        note = f". Moved {len(moved)} old emails to {label}"
         return note + (f" ({failed} couldn't be moved)" if failed else "")
 
+    # ------------------------------------------------------------------ block
     def _block(self, sender) -> dict:
-        address = sender["address"]
         if self.dry_run:
             return {"status": "dry_run",
-                    "outcome": f"Would add a block rule and move {len(sender['ids'])} emails to Junk"}
+                    "outcome": f"Would add to the MailSift blocklist and move {len(sender['ids'])} emails to Junk"}
+        # The rule is written once for the whole batch in _finish_blocks().
+        return {"status": "pending", "outcome": "Blocking…", "move_note": self._move_note(sender, "junkemail", "Junk")}
 
-        junk = self.graph.well_known_folder_id("junkemail") or "junkemail"
-        display = (RULE_PREFIX + address)[:255]
-        rule_id, rule_note = None, "Blocked: future emails go to Junk"
+    def _finish_blocks(self, results):
+        addresses = [r["address"] for r in results]
         try:
-            rules = self.graph.list_rules()
-            existing = next((r for r in rules if r.get("displayName") == display), None)
-            if existing:
-                rule_id = existing.get("id")
-            else:
-                sequence = max((r.get("sequence") or 0 for r in rules), default=0) + 1
-                created = self.graph.create_rule({
-                    "displayName": display,
-                    "sequence": sequence,
-                    "isEnabled": True,
-                    # exact match: "senderContains" would also catch e.g. sales-info@x.com when blocking info@x.com
-                    "conditions": {"fromAddresses": [{"emailAddress": {"address": address}}]},
-                    "actions": {"moveToFolder": junk, "stopProcessingRules": True},
-                })
-                rule_id = created.get("id")
+            self.blocklist.sync(add=addresses)
         except GraphError as exc:
-            rule_note = f"Couldn't create the block rule ({exc.message})"
+            for r in results:
+                r.update(status="failed", outcome=f"Couldn't update the blocklist rule ({exc.message})" + r.pop("move_note", ""))
+                self.store.log(r["address"], r["name"], "block", "failed", r["outcome"], False)
+            return
+        for r in results:
+            r.update(status="done", outcome="Blocked: future emails go to Junk" + r.pop("move_note", ""))
+            self.store.mark_blocked(r["address"])
+            if self.run_id is not None:
+                self.store.record_block(self.run_id, r["address"])
+            self.store.log(r["address"], r["name"], "block", "done", r["outcome"], False)
 
-        if rule_id:
-            self.store.mark_blocked(address, rule_id)
-        status = "done" if rule_id else "failed"
-        return {"status": status, "outcome": rule_note + self._move_note(sender, "junkemail", "Junk")}
+    # ------------------------------------------------------------------- undo
+    def undo(self, run_id, progress=None) -> dict:
+        """Moves mail from a clean-up back where it was and lifts its blocks."""
+        progress = progress or (lambda **_: None)
+        moves, blocks = self.store.run_items(run_id)
+        by_folder = defaultdict(list)
+        for message_id, folder in moves:
+            by_folder[folder].append(message_id)
+
+        restored = failed = 0
+        steps = len(by_folder) + (1 if blocks else 0)
+        done = 0
+        for folder, ids in by_folder.items():
+            try:
+                moved, bad = self.graph.move_messages(ids, folder)
+                restored += len(moved)
+                failed += bad
+            except GraphError:
+                failed += len(ids)
+            done += 1
+            progress(done=done, total=steps)
+
+        unblocked, block_error = 0, None
+        if blocks:
+            try:
+                self.blocklist.sync(remove=blocks)
+                self.store.unmark_blocked(blocks)
+                unblocked = len(blocks)
+            except GraphError as exc:
+                block_error = exc.message
+            progress(done=steps, total=steps)
+
+        if block_error is None:
+            self.store.mark_undone(run_id)
+        self.store.log("-", "MailSift", "undo", "failed" if (failed or block_error) else "done",
+                       f"restored {restored}, unblocked {unblocked}, failed {failed}", False)
+        return {"restored": restored, "failed": failed, "unblocked": unblocked, "block_error": block_error}

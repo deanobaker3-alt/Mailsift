@@ -16,7 +16,11 @@ Works with: Hotmail, Outlook.com, Live and MSN email addresses.
    or block. Or click "smart pick" to do the obvious ones for you.
    Tip: sort by "most per month" to find the noisiest senders.
 
+   Tip: tap the star (☆) next to any sender you never want touched, like your bank.
+   MailSift will leave them alone, even with "smart pick".
+
 5. Click "review & apply", check the list, then "execute". Done.
+   Changed your mind? "undo last clean-up" puts the emails back and unblocks.
 
 6. Click "quit" (top right) when you're finished. If you just close the tab,
    MailSift switches itself off after about 10 minutes anyway.

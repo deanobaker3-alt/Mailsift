@@ -83,12 +83,12 @@ class GraphClient:
             url, query = data.get("@odata.nextLink"), None  # nextLink already carries the query
 
     def batch(self, requests_list):
-        """Runs requests through $batch, 20 at a time. Returns statuses in input order."""
+        """Runs requests through $batch, 20 at a time. Returns (status, body) pairs in input order."""
         statuses = []
         for start in range(0, len(requests_list), self.BATCH_SIZE):
             chunk = requests_list[start:start + self.BATCH_SIZE]
             pending = {str(i): req for i, req in enumerate(chunk)}
-            results: dict[str, int] = {}
+            results: dict[str, tuple] = {}
             for attempt in range(3):
                 body = {"requests": [
                     {"id": rid, "method": req["method"], "url": req["url"],
@@ -102,13 +102,13 @@ class GraphClient:
                     if status == 429 and attempt < 2:
                         retry[rid] = pending[rid]
                     else:
-                        results[rid] = status
+                        results[rid] = (status, resp.get("body") or {})
                 if not retry:
                     break
                 pending = retry
                 self.on_event("graph 429 inside batch: retrying in 5s")
                 self.sleep(5)
-            statuses.extend(results.get(str(i), 500) for i in range(len(chunk)))
+            statuses.extend(results.get(str(i), (500, {})) for i in range(len(chunk)))
         return statuses
 
     # -- mailbox ---------------------------------------------------------
@@ -147,12 +147,17 @@ class GraphClient:
         return data.get("internetMessageHeaders") or []
 
     def move_messages(self, message_ids, destination):
-        """Moves messages (soft move, never a permanent delete). Returns (moved, failed)."""
+        """Moves messages (soft move, never a permanent delete).
+
+        Outlook gives a message a new id when it changes folder, so this returns
+        ([(old_id, new_id), ...], failed_count) to let the move be undone later.
+        """
+        message_ids = list(message_ids)
         reqs = [{"method": "POST", "url": f"/me/messages/{_mid(mid)}/move", "body": {"destinationId": destination}}
                 for mid in message_ids]
-        statuses = self.batch(reqs) if reqs else []
-        moved = sum(1 for s in statuses if 200 <= s < 300)
-        return moved, len(statuses) - moved
+        results = self.batch(reqs) if reqs else []
+        moved = [(old, body.get("id") or old) for old, (status, body) in zip(message_ids, results) if 200 <= status < 300]
+        return moved, len(results) - len(moved)
 
     def send_mail(self, to, subject, body):
         self.request("POST", "/me/sendMail", json={
@@ -169,3 +174,9 @@ class GraphClient:
 
     def create_rule(self, rule):
         return self.request("POST", "/me/mailFolders/inbox/messageRules", json=rule)
+
+    def update_rule(self, rule_id, changes):
+        return self.request("PATCH", f"/me/mailFolders/inbox/messageRules/{quote(rule_id, safe='')}", json=changes)
+
+    def delete_rule(self, rule_id):
+        self.request("DELETE", f"/me/mailFolders/inbox/messageRules/{quote(rule_id, safe='')}")

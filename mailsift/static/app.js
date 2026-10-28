@@ -208,6 +208,7 @@
     if (!st.configured) return renderSetup();
     if (!st.signed_in) return renderSignIn(st.auth);
     if (st.apply_state === 'running') return renderApplying();
+    if (st.undo_state === 'running') return renderUndoing();
     if (st.scan_state === 'running') return renderScanning();
     if (st.has_results) return loadResults(await api('/api/scan'));
     return renderScan();
@@ -320,6 +321,7 @@
         h('div', { class: 'radio-row', role: 'group', 'aria-label': 'Scan range' }, opts),
         h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: startScan }, '▶ run scan'),
         h('p', { class: 'hint' }, 'read-only · headers only · 4 parallel workers')),
+      undoPanel(),
       privacyPanel());
   }
 
@@ -386,6 +388,7 @@
     dodgy: ['suspicious', isDodgy],
     ignored: ['ignored you', (s) => s.ignored],
     chosen: ['selected', (s) => choiceOf(s) !== 'keep'],
+    protected: ['never touch', (s) => s.protected],
   };
 
   function visibleSenders() {
@@ -399,6 +402,7 @@
   function setChoices(list, action, label) {
     let n = 0;
     for (const s of list) {
+      if (s.protected) continue;
       if (s.blocked && action === 'block') continue;
       if (!(ACTIONS_FOR[s.kind] || ['keep']).includes(action)) continue;
       if (action === 'keep') delete S.choices[s.id]; else S.choices[s.id] = action;
@@ -411,7 +415,7 @@
   function smartPick() {
     let n = 0;
     for (const s of S.senders) {
-      if (s.blocked) continue;
+      if (s.blocked || s.protected) continue;
       if (s.kind === 'dodgy' || s.ignored) { S.choices[s.id] = 'block'; n++; } else if (s.open_pct < 5 && UNSUBSCRIBABLE.has(s.kind)) { S.choices[s.id] = 'unsubdel'; n++; }
     }
     announce(`Smart pick selected ${n} senders`);
@@ -438,7 +442,8 @@
           h('span', { class: 'who-name' }, s.name),
           h('span', { class: `chip ${kindClass}`, title: kindTitle }, kindText),
           s.ignored ? h('span', { class: 'chip chip-red' }, 'ignored unsub') : null,
-          s.blocked ? h('span', { class: 'chip chip-dim' }, 'blocked') : null),
+          s.blocked ? h('span', { class: 'chip chip-dim' }, 'blocked') : null,
+          s.protected ? h('span', { class: 'chip chip-cyan' }, 'never touch') : null),
         h('span', { class: 'who-addr' }, s.address),
         s.reasons && s.reasons.length ? h('span', { class: `why${s.kind === 'unverified' ? ' amber' : ''}` }, s.reasons.join(' · ')) : null,
         s.ignored ? h('span', { class: 'why' }, `still sent ${fmt(s.ignored_count)} emails after you unsubscribed: block them`) : null),
@@ -450,10 +455,27 @@
         stat('opened', `${s.open_pct}%`, h('div', { class: 'meter' }, fill)),
         stat('last', relDate(s.last))),
       h('div', { class: 'choices', role: 'group', 'aria-label': `Action for ${s.name}` },
-        (ACTIONS_FOR[s.kind] || ['keep']).map((action) => h('button', {
+        h('button', {
+          type: 'button', class: `choice c-protect`, 'aria-pressed': String(!!s.protected),
+          title: s.protected ? 'Remove from your never-touch list' : 'Never touch this sender (bulk actions skip it)',
+          'aria-label': s.protected ? `Remove ${s.name} from never-touch list` : `Never touch ${s.name}`,
+          onclick: () => toggleProtect(s),
+        }, s.protected ? '★' : '☆'),
+        s.protected ? h('span', { class: 'hint protected-note' }, 'protected: bulk actions skip it') : (ACTIONS_FOR[s.kind] || ['keep']).map((action) => h('button', {
           type: 'button', class: `choice c-${action}`, 'aria-pressed': String(current === action), title: ACTION_TITLE[action],
           onclick: () => { if (action === 'keep') delete S.choices[s.id]; else S.choices[s.id] = action; renderRows(); },
         }, ACTION_LABEL[action]))));
+  }
+
+  async function toggleProtect(s) {
+    const on = !s.protected;
+    try {
+      await api('/api/protect', { id: s.id, on });
+      s.protected = on;
+      if (on) delete S.choices[s.id];
+      announce(on ? `${s.name} added to your never-touch list` : `${s.name} removed from your never-touch list`);
+      renderRows();
+    } catch (e) { if (e.message !== 'locked') announce(e.message); }
   }
 
   let rowsEl, moreEl, tabsEl;
@@ -544,10 +566,19 @@
   }
 
   // ----------------------------------------------------------------- confirm
-  function confirmBox({ title, body, ok, onOk }) {
+  function confirmBox({ title, body, ok, onOk, ack }) {
     $('confirm-title').textContent = title;
-    $('confirm-content').replaceChildren(...body);
-    $('confirm-ok').textContent = ok;
+    const okBtn = $('confirm-ok');
+    const parts = [...body];
+    okBtn.disabled = false;
+    if (ack) {
+      const box = h('input', { type: 'checkbox', id: 'confirm-ack' });
+      box.addEventListener('change', () => { okBtn.disabled = !box.checked; });
+      parts.push(h('label', { class: 'ack', for: 'confirm-ack' }, box, h('span', {}, ack)));
+      okBtn.disabled = true;
+    }
+    $('confirm-content').replaceChildren(...parts);
+    okBtn.textContent = ok;
     dialog.returnValue = '';
     dialog.onclose = () => { if (dialog.returnValue === 'ok') onOk(); };
     dialog.showModal();
@@ -557,14 +588,24 @@
     const t = tally();
     const st = S.status;
     const simulate = st.dry_run || st.demo;
-    const order = { block: 0, unsubdel: 1, unsub: 2 };
-    const lines = t.list.sort((a, b) => order[a[1]] - order[b[1]] || a[0].name.localeCompare(b[0].name))
-      .map(([s, c]) => h('div', {}, h('b', {}, ACTION_LABEL[c].toUpperCase().padEnd(12)), `${s.name} <${s.address}>`));
+    const byName = (a, b) => a[0].name.localeCompare(b[0].name);
+    const line = ([s, c]) => h('div', {}, h('b', {}, ACTION_LABEL[c].toUpperCase().padEnd(12)), `${s.name} <${s.address}>`);
+    const blocks = t.list.filter(([, c]) => c === 'block').sort(byName);
+    const others = t.list.filter(([, c]) => c !== 'block').sort((a, b) => (a[1] === b[1] ? byName(a, b) : a[1] === 'unsubdel' ? -1 : 1));
+    const legitBlocks = blocks.filter(([s]) => !isDodgy(s) && !s.ignored); // ignored-your-unsub senders deserve a block
     confirmBox({
       title: simulate ? `confirm // ${st.demo ? 'demo' : 'dry'} run` : 'confirm // live run',
+      ack: !st.dry_run && legitBlocks.length
+        ? `Yes, block ${legitBlocks.length === 1 ? 'that sender' : `those ${legitBlocks.length} senders`} too. Their future emails will go straight to Junk.`
+        : null,
       body: [
         h('p', {}, `Unsubscribe from ${t.unsub}, block ${t.block}, and tidy away ${fmt(t.purge)} old emails.`),
-        h('div', { class: 'plan' }, lines),
+        blocks.length ? h('div', { class: 'block-section' },
+          h('div', { class: 'block-head' }, `⛔ blocking ${blocks.length} sender${blocks.length === 1 ? '' : 's'}: every future email from them goes straight to Junk`),
+          h('div', { class: 'plan' }, blocks.map(line))) : null,
+        legitBlocks.length ? h('p', { class: 'warn-box' },
+          `Heads up: ${legitBlocks.map(([s]) => s.name).join(', ')} ${legitBlocks.length === 1 ? 'looks' : 'look'} like ${legitBlocks.length === 1 ? 'a genuine sender' : 'genuine senders'}, not ${legitBlocks.length === 1 ? 'a scammer' : 'scammers'}. If you just want fewer emails, “unsub” is usually better than “block”.`) : null,
+        others.length ? h('div', { class: 'plan' }, others.map(line)) : null,
         h('p', { class: 'hint' }, simulate
           ? 'Simulation: nothing in your mailbox will change.'
           : 'Unsubscribes can’t be undone. Old emails go to Deleted Items or Junk, so they can still be recovered.'),
@@ -581,7 +622,7 @@
   });
 
   // -------------------------------------------------------------------- apply
-  const STATUS_TAG = { done: '[ OK ]', dry_run: '[ SIM]', needs_you: '[ YOU]', failed: '[FAIL]' };
+  const STATUS_TAG = { done: '[ OK ]', dry_run: '[ SIM]', needs_you: '[ YOU]', failed: '[FAIL]', pending: '[ .. ]' };
 
   function resultLine(r) {
     const cls = r.status === 'failed' ? 'bad' : r.status === 'needs_you' ? 'warn' : 'ok';
@@ -620,6 +661,7 @@
     const unsubbed = results.filter((r) => r.action !== 'block' && ok(r)).length;
     const blocked = results.filter((r) => r.action === 'block' && ok(r)).length;
     const needs = results.filter((r) => r.status === 'needs_you');
+    const undoButton = h('button', { type: 'button', class: 'btn', hidden: true }, '↶ undo this clean-up');
     const failed = results.filter((r) => r.status === 'failed').length;
     S.choices = {};
     announce('Clean-up finished');
@@ -646,7 +688,64 @@
         h('span', {}))))),
       h('div', { class: 'buttons' },
         h('button', { type: 'button', class: 'btn btn-go', onclick: startScan }, '▶ scan again'),
-        h('button', { type: 'button', class: 'btn', onclick: () => renderScan() }, 'change range'))));
+        h('button', { type: 'button', class: 'btn', onclick: () => renderScan() }, 'change range'),
+        undoButton)));
+    if (!job.dry_run) {
+      api('/api/status').then((st) => {
+        S.status = st;
+        if (st.undo) { undoButton.hidden = false; undoButton.onclick = () => confirmUndo(st.undo); }
+      }).catch(() => {});
+    }
+  }
+
+  // --------------------------------------------------------------------- undo
+  function undoPanel() {
+    const u = S.status && S.status.undo;
+    if (!u) return null;
+    const when = new Date(u.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    return h('section', { class: 'panel privacy' },
+      h('div', { class: 'panel-title' }, h('span', {}, 'undo // last clean-up'), h('span', {}, when)),
+      h('div', { class: 'panel-body' },
+        h('p', { class: 'lede flush' }, `Moved ${fmt(u.moved)} emails and blocked ${fmt(u.blocked)} sender${u.blocked === 1 ? '' : 's'}. You can put it all back.`),
+        h('div', { class: 'buttons' }, h('button', { type: 'button', class: 'btn', onclick: () => confirmUndo(u) }, '↶ undo last clean-up'))));
+  }
+
+  function confirmUndo(u) {
+    confirmBox({
+      title: 'confirm // undo',
+      body: [
+        h('p', {}, `Move ${fmt(u.moved)} emails back to where they were, and take ${fmt(u.blocked)} sender${u.blocked === 1 ? '' : 's'} off the MailSift blocklist.`),
+        h('p', { class: 'hint' }, 'Unsubscribes can’t be undone: those requests have already gone to the senders. Re-subscribe on their website if you need to.'),
+      ],
+      ok: 'undo it',
+      onOk: async () => {
+        try { await api('/api/undo', { run_id: u.run_id }); renderUndoing(); } catch (e) { if (e.message !== 'locked') renderScan(e.message); }
+      },
+    });
+  }
+
+  function renderUndoing() {
+    const asciiEl = h('pre', { class: 'asciibar', 'aria-hidden': 'true' }, bar(0));
+    show(h('section', { class: 'panel hero' },
+      h('div', { class: 'panel-title' }, 'undo // running'),
+      h('p', { class: 'prompt' }, 'mailsift undo --last', h('span', { class: 'cursor', 'aria-hidden': 'true' })),
+      asciiEl,
+      h('p', { class: 'hint' }, 'putting your emails back…')));
+    poll(async () => {
+      const job = await api('/api/undo');
+      if (job.state === 'error') { renderScan(job.message); return false; }
+      if (job.state === 'done') {
+        S.senders = []; S.choices = {};
+        S.status = await api('/api/status');
+        const bits = [`${fmt(job.restored)} emails restored`, `${fmt(job.unblocked)} unblocked`];
+        if (job.failed) bits.push(`${fmt(job.failed)} couldn't be moved (they may have been deleted since)`);
+        if (job.block_error) bits.push(`blocklist not updated: ${job.block_error}`);
+        renderScan(job.failed || job.block_error ? bits.join(' · ') : null, job.failed || job.block_error ? null : `undo complete: ${bits.join(' · ')}. Scan again to see the up-to-date list.`);
+        return false;
+      }
+      asciiEl.textContent = bar(pct(job.done || 0, job.total || 1));
+      return true;
+    }, 500);
   }
 
   boot();

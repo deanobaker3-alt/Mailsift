@@ -52,13 +52,15 @@ def _headers(name, address, style, auth):
 
 
 class DemoGraph:
-    def __init__(self, seed=7, delay=0.6):
+    def __init__(self, seed=7, delay=0.12):
         self.delay = delay
         rng = random.Random(seed)
         now = datetime.now(timezone.utc)
         self.messages = []
         self.sent = []
         self.rules = []
+        self._moves = 0
+        self._rule_ids = 0
         n = 0
         for name, address, count, open_pct, last_days, style, auth, folder in SENDERS:
             read_target = round(count * open_pct / 100)
@@ -114,13 +116,16 @@ class DemoGraph:
         return next((m["internetMessageHeaders"] for m in self.messages if m["id"] == message_id), [])
 
     def move_messages(self, message_ids, destination):
+        # Like Outlook, a moved message gets a new id.
         ids = set(message_ids)
-        moved = 0
+        moved = []
         for m in self.messages:
             if m["id"] in ids:
-                m["parentFolderId"] = destination
-                moved += 1
-        return moved, len(ids) - moved
+                self._moves += 1
+                new_id = f"{m['id'].split('~')[0]}~{self._moves}"
+                moved.append((m["id"], new_id))
+                m["id"], m["parentFolderId"] = new_id, destination
+        return moved, len(ids) - len(moved)
 
     def send_mail(self, to, subject, body):
         self.sent.append({"to": to, "subject": subject, "body": body})
@@ -131,9 +136,18 @@ class DemoGraph:
     def create_rule(self, rule):
         if any(r["displayName"] == rule["displayName"] for r in self.rules):
             raise GraphError(400, "Duplicate rule")
-        created = {**rule, "id": f"rule-{len(self.rules) + 1}"}
+        self._rule_ids += 1
+        created = {**rule, "id": f"rule-{self._rule_ids}"}
         self.rules.append(created)
         return created
+
+    def update_rule(self, rule_id, changes):
+        rule = next(r for r in self.rules if r["id"] == rule_id)
+        rule.update(changes)
+        return rule
+
+    def delete_rule(self, rule_id):
+        self.rules = [r for r in self.rules if r["id"] != rule_id]
 
 
 class DemoAuth:

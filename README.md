@@ -18,7 +18,9 @@ It runs entirely on your own computer. Your mail goes from Microsoft to your PC 
 | Looks dodgy / couldn't verify | **Can't be unsubscribed, only blocked.** Unsubscribing from spam just confirms your address is live. |
 
 - **Purge:** moves that sender's emails to **Deleted Items**.
-- **Block:** creates an Outlook inbox rule (named `MailSift block: <address>`) that sends their future mail to Junk, and moves existing mail there too.
+- **Block:** adds the sender to a single Outlook inbox rule called **MailSift blocklist** (exact-address match), which sends their future mail to Junk, and moves existing mail there too. One shared rule (split into numbered parts past 100 senders) keeps you well clear of Outlook's limit on how many rules a mailbox can have. Per-sender rules from older versions are folded in automatically. Blocking a sender that looks genuine, rather than a scammer, asks you to tick a box to confirm.
+- **Undo:** the most recent clean-up can be undone with **↶ undo last clean-up**. Moved mail goes back to the folder it came from and blocks are lifted. Unsubscribes can't be undone, because the request has already gone to the sender.
+- **Never touch:** star (☆) a sender to protect it. Protected senders get no action buttons, and smart pick and bulk actions skip them, which is enforced by the app itself, not just the screen.
 - **Nothing is ever permanently deleted.** Everything can be recovered in Outlook.
 - **Follow-up:** MailSift remembers who you unsubscribed from. If a sender is still emailing you more than 3 days later, the next scan flags it as **Ignored your unsubscribe** so you can block it. **Smart pick** blocks them automatically.
 
@@ -145,11 +147,12 @@ pip install -r requirements-build.txt
 python -m pytest
 ```
 
-62 tests cover:
+71 tests cover:
 - header parsing and classification;
 - the SSRF/rebinding guard and the Graph token-leak guard;
 - parallel-scan correctness;
 - every action path, including dry run;
+- the merged blocklist (chunking, legacy-rule migration), undo and the never-touch list;
 - the launch-key/session lock, CSRF, host checks, quit and forget-me.
 
 ## Layout

@@ -158,7 +158,7 @@ input::placeholder { color: var(--faint); }
 .bulk .ghost { min-height: 36px; }
 
 .rows { border-top: 1px solid var(--line); }
-.row { display: grid; grid-template-columns: minmax(0, 2fr) 196px minmax(0, 1.5fr) 300px; gap: 12px 20px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: minmax(0, 2fr) 196px minmax(0, 1.4fr) 348px; gap: 12px 20px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .row:last-child { border-bottom: none; }
 .row:hover { background: var(--panel-2); }
 @media (max-width: 1000px) { .row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .choices { grid-column: 1 / -1; justify-content: flex-start !important; } }
@@ -232,3 +232,18 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.7); }
   .cursor { animation: none; }
   * { scroll-behavior: auto !important; }
 }
+
+/* v1.3: never-touch + undo */
+.choice.c-protect { min-width: 40px; font-size: 16px; color: var(--faint); }
+.choice.c-protect[aria-pressed="true"] { color: var(--cyan); border-color: #1F4E63; background: var(--cyan-bg); }
+.protected-note { align-self: center; padding: 0 6px; }
+.lede.flush { padding: 0; margin-bottom: 12px; }
+
+/* block confirmation */
+.block-section { border: 1px solid #5A2626; border-radius: 4px; background: var(--red-bg); }
+.block-head { color: var(--red); font-weight: 700; font-size: 13px; padding: 8px 14px; }
+.block-section .plan { border: none; border-top: 1px solid #5A2626; border-radius: 0 0 4px 4px; }
+.warn-box { margin: 0; padding: 10px 14px; border: 1px solid #5E4A17; border-radius: 4px; background: var(--amber-bg); color: var(--amber); font-size: 13px; }
+.ack { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 13px; color: var(--text); }
+.ack input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--red-solid); }
+#confirm-ok:disabled { background: var(--slate); border-color: var(--slate); color: #A3B3AC; cursor: not-allowed; }
