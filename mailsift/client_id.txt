@@ -1,0 +1,5 @@
+# Publisher: paste your app registration's Application (client) ID on the line below,
+# then build/share MailSift. Your users will sign straight in with their own
+# Hotmail/Outlook.com accounts and never see a setup screen.
+# (A public client ID isn't a secret, so it's safe to ship.)
+

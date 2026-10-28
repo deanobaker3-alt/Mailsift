@@ -1,0 +1,32 @@
+# Optional: if you put MailSift on GitHub, this tests and builds MailSift.exe on every push
+# (Actions tab > latest run > Artifacts). Make sure mailsift/client_id.txt holds your ID.
+name: Build MailSift.exe
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Client ID can come from a repo variable (Settings > Secrets and variables > Actions > Variables),
+      # so you can set it from a phone without editing files. It isn't a secret, so a variable is fine.
+      - name: Use MAILSIFT_CLIENT_ID variable if set
+        if: ${{ vars.MAILSIFT_CLIENT_ID != '' }}
+        shell: pwsh
+        run: Add-Content -Path mailsift/client_id.txt -Value "`n${{ vars.MAILSIFT_CLIENT_ID }}"
+      - run: python -m pip install -r requirements-build.txt
+      - run: python -m pytest -q
+      - run: python -c "from mailsift.app import bundled_client_id; import sys; sys.exit(0 if bundled_client_id() else 'Put your client ID in mailsift/client_id.txt')"
+      - run: pyinstaller --noconfirm --clean --onefile --windowed --name MailSift --icon mailsift\icon.ico --add-data "mailsift\static;mailsift\static" --add-data "mailsift\client_id.txt;mailsift" mailsift_app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MailSift-windows
+          path: dist/MailSift.exe

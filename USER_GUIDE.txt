@@ -1,0 +1,35 @@
+MailSift: clear the junk out of your Hotmail
+============================================
+
+Works with: Hotmail, Outlook.com, Live and MSN email addresses.
+
+1. Double-click MailSift.exe.
+   If Windows says "Windows protected your PC", click "More info", then "Run anyway".
+   (It says that about any app that isn't from a big company.)
+
+2. Your web browser opens on MailSift. Click "sign in with microsoft" and sign in
+   with your email. Microsoft will ask if MailSift can access your mail. Click "Accept".
+
+3. Choose how far back to look and click "run scan".
+
+4. For each sender, pick keep, unsub, unsub+purge (also tidies away their old emails)
+   or block. Or click "smart pick" to do the obvious ones for you.
+   Tip: sort by "most per month" to find the noisiest senders.
+
+5. Click "review & apply", check the list, then "execute". Done.
+
+6. Click "quit" (top right) when you're finished. If you just close the tab,
+   MailSift switches itself off after about 10 minutes anyway.
+
+Good to know
+------------
+- MailSift never sees your password. You sign in on Microsoft's own page.
+- It runs on your computer only. Your emails don't go to anyone, including whoever
+  gave you this app. It only reads the "envelope" of each email, never what's inside.
+- Nothing is permanently deleted. Old emails go to Deleted Items or Junk, so you
+  can get them back in Outlook.
+- Senders marked "suspicious" can only be blocked. Unsubscribing from scammers just
+  tells them your email address works.
+- "forget me" on the scan screen signs you out and wipes everything MailSift has
+  saved on your computer.
+- To remove its access from your Microsoft account: account.live.com/consent/Manage

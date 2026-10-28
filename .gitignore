@@ -1,0 +1,20 @@
+# build output
+build/
+dist/
+*.spec
+.build-venv/
+.venv/
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# local runtime data (never commit these)
+token_cache.bin
+*.lockfile
+launcher.secret
+instance.json
+mailsift.db
+mailsift.log
+config.json

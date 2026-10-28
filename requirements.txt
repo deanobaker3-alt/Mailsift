@@ -1,0 +1,7 @@
+# Pinned so every build is reproducible. Upgrade deliberately, then run the tests.
+flask==3.1.3
+msal==1.39.0
+msal-extensions==1.3.1
+requests==2.34.2
+urllib3==2.8.0
+certifi==2026.10.23
