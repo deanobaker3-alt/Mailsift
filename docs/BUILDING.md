@@ -70,6 +70,7 @@ Then re-run the tests. Dependabot raises pull requests when something needs upda
 ## 5. Repository settings worth having (public repo)
 
 - **Settings → Code security:** turn on Dependabot alerts, secret scanning with push protection, and **private vulnerability reporting**. (CodeQL and OpenSSF Scorecard already run as workflows here, so leave CodeQL *default setup* off, or it'll duplicate them.)
+  - Those two workflows **skip themselves while the repo is private** (CodeQL needs paid Advanced Security on private repos; Scorecard needs a public one). They start running on their own once you publish: no change needed.
 - **Settings → Rules → Rulesets** (branch `main`): block force pushes and deletion, and require the *Build MailSift.exe* check to pass on pull requests.
 - **Settings → Actions → General:** *Workflow permissions* set to read-only, and *Require approval for all external contributors* for fork pull requests.
 - **Your account → Settings → Emails:** *Keep my email addresses private* and *Block command line pushes that expose my email*.

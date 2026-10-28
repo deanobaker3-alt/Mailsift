@@ -1,5 +1,9 @@
 # GitHub's own code scanning. Finds security bugs Bandit misses, and anything
-# it finds shows up in the repo's Security tab. Free on public repositories.
+# it finds shows up in the repo's Security tab.
+#
+# On a PRIVATE repo this needs paid GitHub Advanced Security, so the gate job
+# below skips the analysis rather than failing every push. It starts working
+# by itself the moment the repo is made public.
 name: CodeQL
 on:
   push:
@@ -7,15 +11,37 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "37 5 * * 2"   # weekly, so new rules get applied to old code
+    - cron: "37 5 * * 2"   # weekly, so new rules get applied to existing code
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  gate:
+    name: Is this repo public?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      public: ${{ steps.check.outputs.public }}
+    steps:
+      # Asked via the API rather than the event payload, because scheduled runs
+      # don't always carry repository details.
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          visibility=$(gh api "repos/$REPO" --jq .visibility)
+          echo "repository is $visibility"
+          [ "$visibility" = "public" ] && echo "public=true" >> "$GITHUB_OUTPUT" || echo "public=false" >> "$GITHUB_OUTPUT"
+
   analyse:
     name: Analyse ${{ matrix.language }}
+    needs: gate
+    if: needs.gate.outputs.public == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

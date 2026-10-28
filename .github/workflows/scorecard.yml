@@ -1,7 +1,9 @@
 # OpenSSF Scorecard: an independent, automated check of this project's
 # supply-chain health (pinned dependencies, branch protection, code review,
 # dangerous workflow patterns...). Results appear in the repo's Security tab.
-# Public repositories only.
+#
+# Scorecard only works on public repositories, so the gate job below skips it
+# while this repo is private. It starts working by itself once published.
 name: Scorecard
 on:
   branch_protection_rule:
@@ -14,8 +16,28 @@ on:
 permissions: read-all
 
 jobs:
+  gate:
+    name: Is this repo public?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      public: ${{ steps.check.outputs.public }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          visibility=$(gh api "repos/$REPO" --jq .visibility)
+          echo "repository is $visibility"
+          [ "$visibility" = "public" ] && echo "public=true" >> "$GITHUB_OUTPUT" || echo "public=false" >> "$GITHUB_OUTPUT"
+
   analysis:
     name: Scorecard analysis
+    needs: gate
+    if: needs.gate.outputs.public == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
