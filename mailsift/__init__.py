@@ -1,4 +1,4 @@
 """MailSift subscription cleaner: find mailing lists in your Outlook.com/Hotmail
 mailbox, then unsubscribe from or block the ones you choose."""
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"

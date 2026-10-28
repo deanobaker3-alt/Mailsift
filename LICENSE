@@ -16,5 +16,6 @@ MailSift is provided "as is", without warranty of any kind. Dean Baker is not
 liable for any loss or damage arising from its use.
 
 Third-party components bundled in MailSift.exe (Python, Flask, MSAL,
-requests, urllib3, certifi and their dependencies) remain under their own
+requests, urllib3, certifi and their dependencies, and the Press Start 2P and
+VT323 fonts, see mailsift/static/fonts/OFL.txt) remain under their own
 licences.

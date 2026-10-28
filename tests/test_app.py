@@ -198,3 +198,10 @@ def test_protect_and_undo_endpoints(client):
     assert job["restored"] == 12 and job["unblocked"] == 1
     status = client.get(BASE + "/api/status").get_json()
     assert status["undo"] is None and status["has_results"] is False
+
+
+def test_fonts_are_served_locally(client):
+    for name in ("press-start-2p.woff2", "vt323.woff2", "OFL.txt"):
+        assert client.get(f"{BASE}/static/fonts/{name}").status_code == 200
+    css = client.get(BASE + "/static/app.css").get_data(as_text=True)
+    assert "googleapis" not in css and "/static/fonts/" in css   # no third-party requests

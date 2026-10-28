@@ -75,7 +75,7 @@
 
   function show(...nodes) {
     stopPolling();
-    main.replaceChildren(...nodes);
+    main.replaceChildren(...nodes.filter(Boolean));
     actionbar.hidden = true;
     window.scrollTo(0, 0);
   }
@@ -115,18 +115,94 @@
   const fmt = (n) => Number(n || 0).toLocaleString('en-GB');
   const pct = (n, d) => (d ? Math.min(100, Math.round((100 * n) / d)) : 0);
 
-  function bar(percent, width) {
-    const w = width || 34;
-    const filled = Math.round((w * percent) / 100);
-    return `[${'█'.repeat(filled)}${'░'.repeat(w - filled)}] ${String(percent).padStart(3)}%`;
+  // ------------------------------------------------------------ animation
+  // The app only reports progress every ~half second. Everything on screen is
+  // eased towards those targets every frame, so bars glide, counters roll and
+  // clocks tick smoothly instead of jumping.
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ease = (cur, target, dt, speed) => (REDUCED ? target : cur + (target - cur) * (1 - Math.exp(-dt * (speed || 6))));
+
+  function animate(step) {
+    let last = performance.now();
+    const frame = (now) => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (step(dt) !== false) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
   }
 
-  function duration(seconds) {
-    if (!isFinite(seconds) || seconds < 0) return '—';
-    const s = Math.round(seconds);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    return m < 60 ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  function clock(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '--:--';
+    const s = Math.floor(seconds);
+    const h = Math.floor(s / 3600);
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function energyBar(label) {
+    const fill = h('div', { class: 'energy-fill' });
+    const pctEl = h('span', { class: 'energy-label' }, '0%');
+    const el = h('div', { class: 'energy', role: 'progressbar', 'aria-label': label || 'Progress', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': 0 }, fill);
+    let lastWhole = -1;
+    return {
+      wrap: h('div', { class: 'energy-wrap' }, sprite(ENVELOPE, 4, 'sprite fly'), el, pctEl),
+      el,
+      set(p) {
+        const v = Math.max(0, Math.min(100, p));
+        fill.style.width = `calc((100% - 6px) * ${v / 100})`;
+        const whole = Math.floor(v);
+        if (whole !== lastWhole) { lastWhole = whole; pctEl.textContent = `${whole}%`; el.setAttribute('aria-valuenow', whole); }
+      },
+      indeterminate(on) { el.classList.toggle('indeterminate', on); },
+    };
+  }
+
+  // Original pixel art: a little envelope with a pink seal.
+  const ENVELOPE = [
+    '.KKKKKKKKKKKK.',
+    'KWWWWWWWWWWWWK',
+    'KPWWWWWWWWWWPK',
+    'KWPPWWWWWWPPWK',
+    'KWWWPPWWPPWWWK',
+    'KWWWWWRRWWWWWK',
+    'KWWWWWRRWWWWWK',
+    'KWWWWWWWWWWWWK',
+    '.KKKKKKKKKKKK.',
+  ];
+  const PALETTE = { K: '#07040F', W: '#F4F1FF', P: '#C9B8FF', R: '#FF66C4' };
+  function sprite(rows, scale, cls) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const w = rows[0].length;
+    svg.setAttribute('width', w * scale);
+    svg.setAttribute('height', rows.length * scale);
+    svg.setAttribute('viewBox', `0 0 ${w} ${rows.length}`);
+    svg.setAttribute('class', cls || 'sprite');
+    svg.setAttribute('aria-hidden', 'true');
+    rows.forEach((row, y) => [...row].forEach((c, x) => {
+      if (!PALETTE[c]) return;
+      const r = document.createElementNS(ns, 'rect');
+      r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', 1); r.setAttribute('height', 1);
+      r.setAttribute('fill', PALETTE[c]);
+      svg.append(r);
+    }));
+    return svg;
+  }
+
+  // Arcade-style score counter: rolls up from 0 to the value.
+  function countUp(el, target) {
+    if (REDUCED || !target) { el.textContent = fmt(target); return; }
+    const start = performance.now();
+    const dur = Math.min(1200, 500 + target * 2);
+    const frame = (now) => {
+      if (!el.isConnected && now - start > 50) return;
+      const t = Math.min(1, (now - start) / dur);
+      el.textContent = fmt(Math.round(target * (1 - Math.pow(1 - t, 3))));
+      if (t < 1) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
   }
 
   function relDate(iso) {
@@ -151,11 +227,20 @@
 
   function renderLog(el, lines) {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    el.replaceChildren(...lines.map((line) => h('div', { class: logClass(line) }, line)));
+    const shown = el.lastElementChild ? el.lastElementChild.textContent : null;
+    const from = shown === null ? 0 : lines.lastIndexOf(shown) + 1;
+    if (shown !== null && from === 0) el.replaceChildren();
+    for (const line of lines.slice(from)) el.append(h('div', { class: logClass(line) }, line));
+    while (el.childElementCount > 120) el.firstElementChild.remove();
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }
 
-  function banner() { return $('banner-art').content.cloneNode(true); }
+  function banner(sub) {
+    return h('div', { class: 'title-block', 'aria-hidden': 'true' },
+      sprite(ENVELOPE, 6, 'sprite bob'),
+      h('div', { class: 'pixel-title' }, 'MAILSIFT'),
+      h('div', { class: 'pixel-sub' }, sub || 'SUBSCRIPTION CLEANER'));
+  }
 
   // ------------------------------------------------------------------ chrome
   function updateChrome(st) {
@@ -177,11 +262,11 @@
     clearInterval(S.heartbeat);
     $('session').hidden = true; $('session-anon').hidden = true;
     show(h('section', { class: 'panel hero' },
-      h('div', { class: 'panel-title' }, 'process // terminated'),
-      banner(),
+      h('div', { class: 'panel-title' }, 'game over'),
+      banner('THANKS FOR PLAYING'),
       h('h1', {}, 'MailSift has stopped'),
-      h('p', { class: 'lede' }, 'You can close this tab. Launch MailSift again any time.'),
-      h('p', { class: 'hint' }, '$ exit 0')));
+      h('p', { class: 'lede' }, 'You can close this tab. Launch MailSift again any time to play another round.'),
+      h('p', { class: 'hint' }, '> exit 0')));
   }
   $('quit').addEventListener('click', quit);
   $('quit-anon').addEventListener('click', quit);
@@ -319,7 +404,8 @@
         error ? h('p', { class: 'error', role: 'alert' }, error) : null,
         note ? h('p', { class: 'hint' }, note) : null,
         h('div', { class: 'radio-row', role: 'group', 'aria-label': 'Scan range' }, opts),
-        h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: startScan }, '▶ run scan'),
+        h('p', { class: 'press' }, 'PRESS START'),
+        h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: startScan }, '▶ start scan'),
         h('p', { class: 'hint' }, 'read-only · headers only · 4 parallel workers')),
       undoPanel(),
       privacyPanel());
@@ -333,39 +419,64 @@
   }
 
   function renderScanning() {
-    const asciiEl = h('pre', { class: 'asciibar', 'aria-hidden': 'true' }, bar(0));
+    const meter = energyBar('Scan progress');
     const m = {};
     const metric = (key, label, cls) => h('div', { class: 'metric' },
       h('div', { class: 'metric-label' }, label), (m[key] = h('div', { class: `metric-value ${cls || ''}` }, '—')));
     const logEl = h('div', { class: 'log', role: 'log', 'aria-label': 'Scan log' });
     const cancel = h('button', { type: 'button', class: 'ghost', onclick: async () => { cancel.disabled = true; cancel.textContent = 'cancelling…'; await api('/api/scan/cancel', {}); } }, 'cancel');
     show(h('div', { class: 'console' },
-      panel(['scan // telemetry', cancel], asciiEl,
+      panel(['scan // telemetry', cancel], meter.wrap,
         h('div', { class: 'metrics' },
           metric('checked', 'emails checked', 'green'), metric('total', 'in range'),
           metric('lists', 'mailing lists', 'amber'), metric('rate', 'emails / sec'),
           metric('elapsed', 'elapsed'), metric('eta', 'eta'))),
       panel('scan // log', logEl)));
     announce('Scan started');
+    meter.indeterminate(true);
+
+    // targets come from the server; "shown" values chase them every frame
+    const T = { checked: 0, found: 0, total: null, started: null };
+    const V = { checked: 0, found: 0, rate: 0 };
+    let ema = null; let eta = null; let last = null;
+
+    animate((dt) => {
+      if (!meter.el.isConnected) return false;
+      V.checked = ease(V.checked, T.checked, dt);
+      V.found = ease(V.found, T.found, dt);
+      if (ema !== null) V.rate = ease(V.rate, ema, dt, 3);
+      m.checked.textContent = fmt(Math.round(V.checked));
+      m.lists.textContent = fmt(Math.round(V.found));
+      m.rate.textContent = ema !== null ? fmt(Math.round(V.rate)) : '--';
+      if (T.total) meter.set((100 * V.checked) / T.total);
+      if (T.started) m.elapsed.textContent = clock(Date.now() / 1000 - T.started);
+      if (eta !== null) { eta = Math.max(0, eta - dt); m.eta.textContent = clock(eta); }
+      return true;
+    });
 
     poll(async () => {
       const job = await api('/api/scan');
       if (job.state === 'error') { renderScan(job.message); return false; }
       if (job.state === 'cancelled') { renderScan(null, 'scan cancelled'); return false; }
       if (job.state === 'done') { announce(`Scan complete: ${fmt(job.senders.length)} mailing lists`); loadResults(job); return false; }
-      const elapsed = job.started ? Date.now() / 1000 - job.started : 0;
-      const rate = elapsed > 1 ? job.checked / elapsed : 0;
-      const p = job.total ? pct(job.checked, job.total) : 0;
-      asciiEl.textContent = job.total ? bar(p) : `[${'▒'.repeat(34)}] scanning`;
-      m.checked.textContent = fmt(job.checked);
-      m.total.textContent = job.total ? fmt(job.total) : '—';
-      m.lists.textContent = fmt(job.found);
-      m.rate.textContent = rate ? rate.toFixed(0) : '—';
-      m.elapsed.textContent = duration(elapsed);
-      m.eta.textContent = job.total && rate ? duration((job.total - job.checked) / rate) : '—';
+      const now = performance.now() / 1000;
+      if (last && job.checked > last.checked) {
+        const instant = (job.checked - last.checked) / Math.max(0.05, now - last.t);
+        ema = ema === null ? instant : ema * 0.7 + instant * 0.3;   // smoothed speed
+      }
+      if (!last || job.checked !== last.checked) last = { t: now, checked: job.checked };
+      Object.assign(T, { checked: job.checked || 0, found: job.found || 0, total: job.total, started: job.started });
+      if (job.total) {
+        meter.indeterminate(false);
+        m.total.textContent = fmt(job.total);
+        if (ema) {
+          const fresh = Math.max(0, (job.total - job.checked) / ema);
+          eta = eta === null ? fresh : eta * 0.75 + fresh * 0.25;    // blend, so the countdown never lurches
+        }
+      }
       renderLog(logEl, job.log || []);
       return true;
-    }, 600);
+    }, 500);
   }
 
   function loadResults(job) {
@@ -491,7 +602,11 @@
     }
     const total = senders.reduce((n, s) => n + s.count, 0);
     const never = senders.reduce((n, s) => n + (s.count - s.read), 0);
-    const kpi = (label, value, cls) => h('div', { class: 'metric' }, h('div', { class: 'metric-label' }, label), h('div', { class: `metric-value ${cls || ''}` }, value));
+    const kpi = (label, value, cls) => {
+      const v = h('div', { class: `metric-value ${cls || ''}` }, '0');
+      countUp(v, Number(String(value).replace(/,/g, '')) || 0);
+      return h('div', { class: 'metric' }, h('div', { class: 'metric-label' }, label), v);
+    };
 
     const search = h('input', { type: 'search', id: 'grep', placeholder: 'name or address…', value: S.q, autocomplete: 'off' });
     search.addEventListener('input', () => { S.q = search.value; S.limit = PAGE; renderRows(); });
@@ -514,9 +629,9 @@
         tabsEl,
         h('div', { class: 'bulk' }, h('span', {}, 'bulk:'),
           h('button', { type: 'button', class: 'ghost', title: 'Suspicious and ignored senders → block; opened under 5% → unsub+purge', onclick: smartPick }, 'smart pick'),
-          h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'unsub', 'Unsubscribe visible') }, 'visible → unsub'),
-          h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'unsubdel', 'Unsub+purge visible') }, 'visible → unsub+purge'),
-          h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'keep', 'Reset visible') }, 'visible → keep'),
+          h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'unsub', 'Unsubscribe visible') }, 'visible: unsub'),
+          h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'unsubdel', 'Unsub+purge visible') }, 'visible: unsub+purge'),
+          h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'keep', 'Reset visible') }, 'visible: keep'),
           h('button', { type: 'button', class: 'ghost', onclick: () => { S.choices = {}; announce('All selections cleared'); renderRows(); } }, 'reset all')),
         rowsEl, moreEl),
       h('p', { class: 'hint' }, 'Suspicious senders can only be blocked: unsubscribing from a scammer just confirms your address is live. Nothing is ever permanently deleted: purged and blocked mail goes to Deleted Items or Junk.')));
@@ -569,7 +684,7 @@
   function confirmBox({ title, body, ok, onOk, ack }) {
     $('confirm-title').textContent = title;
     const okBtn = $('confirm-ok');
-    const parts = [...body];
+    const parts = body.filter(Boolean);
     okBtn.disabled = false;
     if (ack) {
       const box = h('input', { type: 'checkbox', id: 'confirm-ack' });
@@ -630,24 +745,37 @@
   }
 
   function renderApplying() {
-    const asciiEl = h('pre', { class: 'asciibar', 'aria-hidden': 'true' }, bar(0));
+    const meter = energyBar('Clean-up progress');
     const m = {};
     const metric = (key, label, cls) => h('div', { class: 'metric' }, h('div', { class: 'metric-label' }, label), (m[key] = h('div', { class: `metric-value ${cls || ''}` }, '0')));
     const logEl = h('div', { class: 'log', role: 'log', 'aria-label': 'Clean-up log' });
     show(h('div', { class: 'console' },
-      panel('apply // telemetry', asciiEl, h('div', { class: 'metrics' },
+      panel('apply // telemetry', meter.wrap, h('div', { class: 'metrics' },
         metric('done', 'processed', 'green'), metric('total', 'queued'), metric('you', 'need you', 'amber'), metric('fail', 'failed', 'red'))),
       panel('apply // log', logEl)));
+    const T = { done: 0, total: 1 };
+    let shown = 0;
+    animate((dt) => {
+      if (!meter.el.isConnected) return false;
+      shown = ease(shown, T.done, dt, 8);
+      meter.set((100 * shown) / (T.total || 1));
+      m.done.textContent = fmt(Math.round(shown));
+      return true;
+    });
     poll(async () => {
       const job = await api('/api/apply');
       const results = job.results || [];
-      asciiEl.textContent = bar(pct(job.done || results.length, job.total || 1));
-      m.done.textContent = fmt(job.done || results.length);
+      T.done = job.done || results.length; T.total = job.total || 1;
       m.total.textContent = fmt(job.total);
       m.you.textContent = fmt(results.filter((r) => r.status === 'needs_you').length);
       m.fail.textContent = fmt(results.filter((r) => r.status === 'failed').length);
       const nearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
-      logEl.replaceChildren(...results.map(resultLine));
+      results.forEach((r, i) => {   // update changed lines, append new ones (so each animates in once)
+        const fresh = resultLine(r);
+        const old = logEl.children[i];
+        if (!old) logEl.append(fresh);
+        else if (old.textContent !== fresh.textContent) { old.textContent = fresh.textContent; old.className = fresh.className; }
+      });
       if (nearBottom) logEl.scrollTop = logEl.scrollHeight;
       if (job.state === 'error') { renderScan(job.message); return false; }
       if (job.state === 'done') { renderDone(job); return false; }
@@ -665,12 +793,16 @@
     const failed = results.filter((r) => r.status === 'failed').length;
     S.choices = {};
     announce('Clean-up finished');
-    const kpi = (label, value, cls) => h('div', { class: 'metric' }, h('div', { class: 'metric-label' }, label), h('div', { class: `metric-value ${cls || ''}` }, value));
+    const kpi = (label, value, cls) => {
+      const v = h('div', { class: `metric-value ${cls || ''}` }, '0');
+      countUp(v, Number(String(value).replace(/,/g, '')) || 0);
+      return h('div', { class: 'metric' }, h('div', { class: 'metric-label' }, label), v);
+    };
 
     show(h('div', { class: 'review' },
       h('section', { class: 'panel hero' },
         h('div', { class: 'panel-title' }, job.dry_run ? 'apply // simulated' : 'apply // complete'),
-        h('p', { class: 'prompt' }, 'exit 0'),
+        h('p', { class: 'stage-clear' }, job.dry_run ? 'PRACTICE ROUND!' : 'STAGE CLEAR!'),
         h('h1', {}, job.dry_run ? 'Dry run finished: here’s what would have happened' : 'Done. Your inbox just got lighter.'),
         h('p', { class: 'lede' }, needs.length
           ? `${needs.length} sender(s) need one click from you: open their unsubscribe page below.`
@@ -725,12 +857,20 @@
   }
 
   function renderUndoing() {
-    const asciiEl = h('pre', { class: 'asciibar', 'aria-hidden': 'true' }, bar(0));
+    const meter = energyBar('Undo progress');
+    const T = { done: 0, total: 1 };
+    let shown = 0;
     show(h('section', { class: 'panel hero' },
-      h('div', { class: 'panel-title' }, 'undo // running'),
+      h('div', { class: 'panel-title' }, 'undo // rewinding'),
       h('p', { class: 'prompt' }, 'mailsift undo --last', h('span', { class: 'cursor', 'aria-hidden': 'true' })),
-      asciiEl,
+      meter.wrap,
       h('p', { class: 'hint' }, 'putting your emails back…')));
+    animate((dt) => {
+      if (!meter.el.isConnected) return false;
+      shown = ease(shown, T.done, dt, 8);
+      meter.set((100 * shown) / (T.total || 1));
+      return true;
+    });
     poll(async () => {
       const job = await api('/api/undo');
       if (job.state === 'error') { renderScan(job.message); return false; }
@@ -743,9 +883,9 @@
         renderScan(job.failed || job.block_error ? bits.join(' · ') : null, job.failed || job.block_error ? null : `undo complete: ${bits.join(' · ')}. Scan again to see the up-to-date list.`);
         return false;
       }
-      asciiEl.textContent = bar(pct(job.done || 0, job.total || 1));
+      T.done = job.done || 0; T.total = job.total || 1;
       return true;
-    }, 500);
+    }, 400);
   }
 
   boot();

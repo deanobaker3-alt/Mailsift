@@ -170,5 +170,6 @@ mailsift/
   launcher.py   single instance, port choice, launcher secret
   app.py        local Flask app: session lock, CSRF, CSP
   demo.py       fake mailbox for --demo
-  static/       the UI (no inline scripts or styles; CSP-clean)
+  static/       the UI: retro arcade theme, original pixel art, bundled OFL pixel fonts
+                (no inline scripts or styles; CSP-clean; nothing loaded from the internet)
 ```
