@@ -1,4 +1,5 @@
-from mailsift.classify import classify, lookalike_brand, registrable_domain
+from mailsift.classify import (ALLOWED_ACTIONS, classify, lookalike_brand, random_looking_suffix,
+                               registrable_domain)
 from mailsift.headers import (has_one_click, header_map, parse_auth_results, parse_list_unsubscribe,
                               parse_mailto, split_unsubscribe_uris)
 
@@ -110,3 +111,52 @@ def test_mailto_ignores_sender_supplied_text():
     # a hostile header must not choose what gets sent from your account
     m = parse_mailto("mailto:leave@example.com?subject=Invoice%20overdue&body=Pay%20at%20evil.example")
     assert m == {"address": "leave@example.com", "subject": "unsubscribe", "body": "unsubscribe"}
+
+
+# --- Impersonation that passes authentication -------------------------------
+# Real case from a live mailbox: a phishing email calling itself "TV LICENSING"
+# with an unsubscribe at an unrelated domain. It authenticated cleanly, because
+# the spammer owned the sending domain, so authentication alone cleared it for
+# unsubscribing. Authentication proves who sent it, not that they're honest.
+
+def test_random_looking_suffix_spots_filter_evasion():
+    assert random_looking_suffix("TV LICENSINGoz6Fc") == "oz6Fc"
+    assert random_looking_suffix("NEWSLETTERa1Bc2") == "a1Bc2"
+
+
+def test_random_looking_suffix_leaves_ordinary_names_alone():
+    for name in ["Crust & Co", "Formula1", "Channel 4", "iPhone 15 Deals", "iPhone15",
+                 "Log4j Weekly", "Web3 Daily", "ROYAL MAIL", "Marks and Spencer",
+                 "Swindon Wildcats", "3M Updates", "O2 Priority", "", "Issue 42"]:
+        assert random_looking_suffix(name) == "", name
+
+
+def test_authenticated_impersonator_cannot_be_unsubscribed_from():
+    result = _cls(address="noreply@enhanceportland.com", display_name="TV LICENSINGoz6Fc",
+                  auth=PASS, one_click=False, https=[],
+                  mailto=["mailto:babbette_angelico@enhanceportland.com"])
+    assert result["kind"] == "dodgy"
+    assert "unsub" not in ALLOWED_ACTIONS[result["kind"]]
+    assert "unsubdel" not in ALLOWED_ACTIONS[result["kind"]]
+    assert ALLOWED_ACTIONS[result["kind"]] == {"keep", "block"}
+
+
+def test_borrowed_brand_name_is_dodgy_even_without_a_random_suffix():
+    result = _cls(address="noreply@enhanceportland.com", display_name="TV Licensing", auth=PASS)
+    assert result["kind"] == "dodgy"
+    assert any("TV Licensing".lower() in r.lower() for r in result["reasons"])
+
+
+def test_brand_sending_from_its_own_domain_is_fine():
+    result = _cls(address="noreply@tvlicensing.co.uk", display_name="TV Licensing", auth=PASS)
+    assert result["kind"] == "oneclick"
+    assert result["reasons"] == []
+
+
+def test_brands_that_split_their_name_across_the_domain_are_not_impersonators():
+    # Real senders whose domain only matches once the dots are removed.
+    for name, addr in [("Octopus Energy", "hello@octopus.energy"),
+                       ("Plusnet", "news@plus.net"),
+                       ("Just Eat", "orders@just-eat.co.uk")]:
+        result = _cls(address=addr, display_name=name, auth=PASS)
+        assert result["kind"] == "oneclick", (name, result["reasons"])
