@@ -49,6 +49,8 @@ class ScanResult:
     senders: list[dict]                                      # safe to send to the browser
     private: dict[str, dict] = field(default_factory=dict)  # message ids + unsubscribe URIs, server side only
     cancelled: bool = False
+    other_senders: int = 0    # senders seen but not listed: not mailing-list mail
+    other_messages: int = 0
 
 
 class Scanner:
@@ -87,6 +89,7 @@ class Scanner:
         state = {
             "groups": {}, "checked": 0, "lock": threading.Lock(),
             "unsubscribed": self.store.unsubscribed(), "skip": skip, "junk": junk_id,
+            "other_senders": set(), "other_count": 0,
         }
         progress(checked=0, found=0, total=total)
 
@@ -121,6 +124,8 @@ class Scanner:
         result = self._build(scope, state["checked"], state["groups"], state["unsubscribed"],
                              self.store.blocked(), self.store.protected())
         result.cancelled = cancelled()
+        result.other_senders = len(state["other_senders"])
+        result.other_messages = state["other_count"]
         return result
 
     # ------------------------------------------------------------------
@@ -132,11 +137,21 @@ class Scanner:
             headers = self.graph.get_message_headers(msg["id"])
         hmap = header_map(headers)
         list_unsub = first(hmap, "list-unsubscribe")
-        if not list_unsub and not first(hmap, "list-id"):
-            return  # not mailing-list mail: personal email is never touched
 
         email = (msg.get("from") or {}).get("emailAddress") or {}
         address = (email.get("address") or "").strip().lower()
+
+        if not list_unsub and not first(hmap, "list-id"):
+            # Not mailing-list mail, so it's never listed or touched. Counted
+            # anyway: without a number on screen, someone looking for a sender
+            # that doesn't set these headers just sees an absence and assumes
+            # the scan is broken.
+            if address:
+                with state["lock"]:
+                    state["other_senders"].add(address)
+                    state["other_count"] += 1
+            return
+
         received = msg.get("receivedDateTime") or ""
         if not address or not received:
             return

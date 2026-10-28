@@ -148,3 +148,17 @@ def test_per_month_and_auth_exposed(env):
     assert 10 < s["per_month"] < 40   # 214 emails over roughly a year
     assert s["auth"]["dmarc"] == "pass"
     assert by_address(Scanner(graph, store).scan("12m"))["claim@amaz0n-prize.top"]["auth"]["dmarc"] == "fail"
+
+
+def test_non_list_mail_is_counted_but_never_listed(env):
+    # "My newsletter isn't in here" looks like a bug unless the scan can say
+    # how much it deliberately left alone. Mum must stay out of the list, but
+    # her mail must still be counted so the UI can explain the absence.
+    graph, store, _, _ = env
+    result = Scanner(graph, store).scan("all")
+
+    assert "mum@example.co.uk" not in {s["address"] for s in result.senders}
+    assert result.other_senders == 1
+    assert result.other_messages == 30
+    # ...and she's reachable through none of the server-side action data either
+    assert all(p["address"] != "mum@example.co.uk" for p in result.private.values())

@@ -93,8 +93,12 @@ a { color: var(--cyan); } a:hover { color: #B3F3FF; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .session-label { font-family: var(--pixel); font-size: 9px; color: var(--green); }
 .session-user { color: var(--text); overflow-wrap: anywhere; }
-.ghost { background: var(--panel-2); border: none; color: var(--dim); min-height: 40px; padding: 0 14px; cursor: pointer; font-family: var(--pixel); font-size: 9px; box-shadow: inset 0 0 0 3px var(--line); }
-.ghost:hover { color: var(--text); box-shadow: inset 0 0 0 3px var(--faint); }
+/* Secondary buttons. They were dim text on a dim border, which made things
+   like "new scan" read as decoration rather than something you could press. */
+.ghost { background: var(--panel-2); border: none; color: var(--text); min-height: 42px; padding: 0 16px; cursor: pointer; font-family: var(--pixel); font-size: 10px; box-shadow: inset 0 0 0 3px var(--faint); }
+.ghost:hover, .ghost:focus-visible { color: var(--green); box-shadow: inset 0 0 0 3px var(--green); }
+.ghost:active { transform: translateY(2px); }
+@media (prefers-reduced-motion: reduce) { .ghost:active { transform: none; } }
 .ghost:disabled { opacity: 0.6; cursor: wait; }
 .strip { background: var(--edge); }
 .strip-inner { display: flex; flex-wrap: wrap; gap: 4px 22px; padding-top: 6px; padding-bottom: 6px; font-size: 18px; color: var(--faint); }

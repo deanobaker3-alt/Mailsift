@@ -114,6 +114,7 @@
   }
 
   const fmt = (n) => Number(n || 0).toLocaleString('en-GB');
+  const plural = (n, word) => (Number(n) === 1 ? word : `${word}s`);
   const pct = (n, d) => (d ? Math.min(100, Math.round((100 * n) / d)) : 0);
 
   // ------------------------------------------------------------ animation
@@ -510,6 +511,8 @@
   function loadResults(job) {
     S.stale = false;   // fresh from the server, so they're safe to go back to
     S.senders = job.senders || [];
+    S.otherSenders = job.other_senders || 0;      // seen but not mailing-list mail
+    S.otherMessages = job.other_messages || 0;
     S.scope = job.scope || S.scope;
     S.limit = PAGE;
     const ids = new Set(S.senders.map((s) => s.id));
@@ -524,9 +527,12 @@
   const TABS = {
     all: ['all', () => true],
     rare: ['opened <5%', (s) => s.open_pct < 5 && UNSUBSCRIBABLE.has(s.kind)],
+    never: ['never opened', (s) => !s.read],
     noisy: ['noisy ≥4/mo', (s) => s.per_month >= 4],
+    safe: ['safe to unsub', (s) => UNSUBSCRIBABLE.has(s.kind) && !s.blocked],
     dodgy: ['suspicious', isDodgy],
     ignored: ['ignored you', (s) => s.ignored],
+    handled: ['already done', (s) => Boolean(s.blocked || s.unsubscribed_at)],
     chosen: ['selected', (s) => choiceOf(s) !== 'keep'],
     protected: ['never touch', (s) => s.protected],
   };
@@ -663,6 +669,13 @@
           h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'keep', 'Reset visible') }, 'visible: keep'),
           h('button', { type: 'button', class: 'ghost', onclick: () => { S.choices = {}; announce('All selections cleared'); renderRows(); } }, 'reset all')),
         rowsEl, moreEl),
+      S.otherSenders
+        ? h('p', { class: 'hint' },
+            `Not everyone is listed: ${fmt(S.otherSenders)} other ${plural(S.otherSenders, 'sender')} `
+            + `(${fmt(S.otherMessages)} ${plural(S.otherMessages, 'email')}) weren’t mailing-list mail, so MailSift leaves them alone. `
+            + 'That includes personal email and anyone who doesn’t send a proper unsubscribe header. '
+            + 'If someone you expected is missing, that’s usually why — or they fall outside your scan range.')
+        : null,
       h('p', { class: 'hint' }, 'Suspicious senders can only be blocked: unsubscribing from a scammer just confirms your address is live. Nothing is ever permanently deleted: purged and blocked mail goes to Deleted Items or Junk.')));
     renderRows();
   }
@@ -677,7 +690,16 @@
       }, `${label} (${n})`)));
 
     const list = visibleSenders();
-    rowsEl.replaceChildren(...(list.length ? list.slice(0, S.limit).map(senderRow) : [h('div', { class: 'empty' }, '0 matches. grep harder.')]));
+    rowsEl.replaceChildren(...(list.length
+      ? list.slice(0, S.limit).map(senderRow)
+      : [h('div', { class: 'empty' },
+          h('div', {}, '0 matches. grep harder.'),
+          // Looking for someone specific and not finding them is the moment
+          // to explain why they might not be here at all.
+          S.q.trim() ? h('p', { class: 'hint' },
+            'Looking for a particular sender? MailSift only lists mail that carries a '
+            + 'proper unsubscribe header, so personal email and senders who don’t set one '
+            + 'never appear. They may also be outside your scan range — try "everything".') : null)]));
     moreEl.replaceChildren(list.length > S.limit
       ? h('button', { type: 'button', class: 'ghost', onclick: () => { S.limit += PAGE; renderRows(); } }, `show more (${fmt(list.length - S.limit)} hidden)`)
       : h('span', { class: 'hint' }, `${fmt(list.length)} shown`));
