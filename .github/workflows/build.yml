@@ -6,9 +6,13 @@
 #  * the workflow token is read-only and checkout doesn't keep git credentials around
 #  * the build fails if tests fail, Bandit finds a medium+ issue, or pip-audit finds a known CVE
 #  * a SHA-256 checksum is published with every build so people can verify their copy
+#  * public builds get a signed build-provenance attestation (gh attestation verify)
+#  * pushing a tag like v1.6.0 publishes a GitHub Release with the .exe, checksum and guide
 name: Build MailSift.exe
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +22,10 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write       # only used by the provenance attestation step
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,6 +67,15 @@ jobs:
       - name: Dependency audit (pip-audit, known CVEs fail the build)
         run: python -m pip_audit -r requirements.txt
 
+      - name: Tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $v = python -c "from mailsift import __version__; print(__version__)"
+          if ("v$v" -ne $env:TAG) { throw "Tag $env:TAG doesn't match mailsift/__init__.py version $v" }
+
       - name: Check a client ID is built in
         run: |
           python -c "from mailsift.app import bundled_client_id; import sys; sys.exit(0 if bundled_client_id() else 'No client ID - set the MAILSIFT_CLIENT_ID variable or edit mailsift/client_id.txt')"
@@ -76,6 +93,14 @@ jobs:
           Copy-Item USER_GUIDE.txt dist\
           "### MailSift.exe SHA-256`n``$hash``" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
+      # Signed proof that this exact .exe was built by this workflow from this commit.
+      # (Free for public repos; skipped while the repo is private.)
+      - name: Build provenance attestation
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/MailSift.exe
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MailSift-windows
@@ -84,3 +109,35 @@ jobs:
             dist/MailSift.exe.sha256
             dist/USER_GUIDE.txt
           if-no-files-found: error
+
+  release:
+    # Only for version tags (v1.6.0 etc.), and only after the build job passed.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write       # create the release
+      actions: read         # download this run's artifact
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh run download "$RUN_ID" --repo "$REPO" --name MailSift-windows --dir dist
+          HASH=$(cut -d' ' -f1 dist/MailSift.exe.sha256)
+          cat > notes.md <<NOTES
+          ## Download
+          Grab **MailSift.exe** below (Windows 10/11). New to it? Read **USER_GUIDE.txt** first.
+
+          ### Verify your download
+          \`\`\`
+          certutil -hashfile MailSift.exe SHA256
+          \`\`\`
+          should print \`$HASH\`.
+          NOTES
+          gh release create "$TAG" --repo "$REPO" --title "MailSift $TAG" --notes-file notes.md --generate-notes \
+            dist/MailSift.exe dist/MailSift.exe.sha256 dist/USER_GUIDE.txt

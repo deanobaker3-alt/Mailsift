@@ -1,179 +1,116 @@
-# MailSift: subscription cleaner
+<div align="center">
 
-Scans your Outlook.com / Hotmail mailbox for mailing lists, shows who sends what and how much of it you actually open, then unsubscribes from or blocks the ones you pick.
+# MAILSIFT
 
-It runs entirely on your own computer. Your mail goes from Microsoft to your PC and nowhere else.
+**Clear the newsletter and junk pile-up out of your Hotmail / Outlook.com in a couple of minutes, safely and privately.**
+
+[![Build](https://github.com/deanobaker3-alt/mailsift/actions/workflows/build.yml/badge.svg)](https://github.com/deanobaker3-alt/mailsift/actions/workflows/build.yml)
+[![Licence: PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial-6DFF7A)](LICENSING.md)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-49E3FF)](#download)
+
+**[⬇ Download the latest release](https://github.com/deanobaker3-alt/mailsift/releases/latest)**
+
+![MailSift start screen](docs/screenshots/1-start.png)
+
+</div>
 
 ## What it does
 
-- **Scan:** reads email *headers* (not bodies) for the last 12 months, 2 years or everything. Only mailing-list mail (anything with `List-Unsubscribe` or `List-Id`) appears. Personal email is never listed or touched.
-- **Group:** one row per sender, with email count, emails per month, % opened, last sent, SPF/DKIM/DMARC verdicts, and how it can be unsubscribed. You can search (`grep>`), sort (most emails, most per month, least opened, most recent, name) and filter (opened <5%, noisy ≥4/mo, suspicious, ignored you, selected).
-- **Act:** for each sender choose **keep**, **unsub**, **unsub+purge** or **block**. Or use the bulk buttons: **smart pick**, or apply an action to everything currently visible.
+MailSift scans your mailbox, finds every mailing list, and shows you **who sends what, how often, and how much of it you actually read**. Then you choose, sender by sender or in bulk:
 
-| Sender type | What "Unsubscribe" does |
+| | |
 |---|---|
-| One-click (RFC 8058) | Sends the standard one-click request in the background. No web page is ever opened. |
-| Unsubscribe by email | Sends a short "unsubscribe" email from your account to the address the sender lists. |
-| Unsubscribe page | Gives you a button to open the sender's unsubscribe page yourself, since some need a click on their site. |
-| Looks dodgy / couldn't verify | **Can't be unsubscribed, only blocked.** Unsubscribing from spam just confirms your address is live. |
+| **keep** | Leave them alone. |
+| **unsub** | Unsubscribe properly (one-click, by email, or via their page). |
+| **unsub+purge** | Unsubscribe *and* move their old emails to Deleted Items. |
+| **block** | Send everything from them, now and in future, to Junk. |
+| ☆ | **Never touch:** star your bank, school, etc., and MailSift leaves them alone. |
 
-- **Purge:** moves that sender's emails to **Deleted Items**.
-- **Block:** adds the sender to a single Outlook inbox rule called **MailSift blocklist** (exact-address match), which sends their future mail to Junk, and moves existing mail there too. One shared rule (split into numbered parts past 100 senders) keeps you well clear of Outlook's limit on how many rules a mailbox can have. Per-sender rules from older versions are folded in automatically. Blocking a sender that looks genuine, rather than a scammer, asks you to tick a box to confirm.
-- **Undo:** the most recent clean-up can be undone with **↶ undo last clean-up**. Moved mail goes back to the folder it came from and blocks are lifted. Unsubscribes can't be undone, because the request has already gone to the sender.
-- **Never touch:** star (☆) a sender to protect it. Protected senders get no action buttons, and smart pick and bulk actions skip them, which is enforced by the app itself, not just the screen.
-- **Nothing is ever permanently deleted.** Everything can be recovered in Outlook.
-- **Follow-up:** MailSift remembers who you unsubscribed from. If a sender is still emailing you more than 3 days later, the next scan flags it as **Ignored your unsubscribe** so you can block it. **Smart pick** blocks them automatically.
+Then:
 
-### How "dodgy" is decided
+- **Smart pick** does the obvious ones for you: rarely-opened newsletters get unsubscribed, and scammers and senders who ignored your unsubscribe get blocked.
+- **Suspicious senders can only be blocked, never unsubscribed.** Clicking "unsubscribe" on a scam just tells them your address is live. MailSift checks SPF, DKIM and DMARC, lookalike domains (`amaz0n…`) and brand impersonation, and shows you why.
+- **Nothing is permanently deleted.** Mail goes to Deleted Items or Junk, and **undo** puts your last clean-up back.
+- **It remembers who you unsubscribed from** and flags anyone who keeps emailing anyway.
 
-A sender is block-only if any of these are true:
+![Reviewing senders](docs/screenshots/3-review.png)
 
-- It failed DMARC / Microsoft's composite authentication.
-- It sends from a TLD favoured by spammers (`.top`, `.xyz` and friends).
-- Its domain is a lookalike of a well-known brand (`amaz0n`, `paypa1`).
-- The display name claims to be a brand it doesn't send from.
-- The display name contains a different email address.
-- The unsubscribe link points at a raw IP address.
-- Outlook already junks most of its mail *and* it isn't authenticated.
+## Private by design
 
-Senders that don't pass DMARC, DKIM or Microsoft's compauth are "unverified" and block-only too. The reasons are shown on each row.
+- **It runs on your own PC.** Your emails go from Microsoft to your computer and nowhere else. There's no MailSift server and no tracking, and nobody, including the author, ever sees your mail.
+- **It never sees your password.** You sign in on Microsoft's own page; MailSift only gets a token, stored encrypted by Windows.
+- **Headers only.** It reads who an email is from and how it can be unsubscribed, never what's inside.
+- **The code is open** so you don't have to take any of this on trust. **Forget me** wipes everything it saved.
 
-## How sharing works
+## Download
 
-There are two roles:
+1. Get **MailSift.exe** from the **[latest release](https://github.com/deanobaker3-alt/mailsift/releases/latest)**. Read `USER_GUIDE.txt` there too if you like.
+2. Double-click it. Your browser opens on MailSift.
+3. **Sign in with Microsoft**, then scan, choose and apply.
 
-- **You (the publisher)** register MailSift with Microsoft **once**, put the resulting app ID in `mailsift/client_id.txt`, and build `MailSift.exe`.
-- **Everyone else** just downloads `MailSift.exe`, double-clicks it, and signs in with their own Hotmail / Outlook.com / Live account. They get no setup screen, need no Azure account, and don't need Python.
+**You need:** Windows 10 or 11, and a **Hotmail, Outlook.com, Live or MSN** address. Gmail and work/school accounts aren't supported.
 
-Each person's copy runs on **their own computer**. Their mail and sign-in go from Microsoft to their PC and nowhere else, including not to you. You never hold anyone's tokens or data, so there's no server to run or secure, and you aren't a data processor for their mail.
+**Two warnings you'll see** (because it's a free hobby project, not a big-company app):
+- **Windows SmartScreen**: "Windows protected your PC". Click **More info → Run anyway**.
+- **Microsoft's consent screen** says the app is **unverified**. Check the permissions it asks for (below), then **Accept**.
 
-**Accounts it works with:** personal Microsoft mailboxes (hotmail.com / hotmail.co.uk / outlook.com / live.com / msn.com). Gmail and work accounts can't sign in to it.
-
-## Publisher setup (once, about 10 minutes)
-
-1. **Get a directory to register the app in.** Microsoft no longer lets personal accounts register apps "outside a directory", so you need a free Entra tenant of your own:
-   - Easiest route: sign up for a free Azure account at **https://azure.microsoft.com/free** with your Hotmail account. This creates a "Default Directory".
-   - Azure asks for a card to verify identity. App registrations are free and nothing here is billable.
-   - Use a personal tenant rather than your employer's. That keeps this fully separate from work, and the app still signs in to your Hotmail because of the account type below.
-2. Go to **https://entra.microsoft.com**, make sure you're in that personal directory (top-right switcher), then **App registrations → New registration**:
-   - Name: `MailSift` (anything you like).
-   - Supported account types: **Personal Microsoft accounts only**.
-   - Redirect URI: choose **Public client/native (mobile & desktop)** and enter `http://localhost`.
-   - Click **Register**.
-3. On the app's **Overview** page, copy the **Application (client) ID**.
-4. *(Optional, for headless machines such as a Raspberry Pi)* Under **Authentication**, set **Allow public client flows** to **Yes**. This enables sign-in with a code.
-5. You don't need to add API permissions by hand. MailSift asks for these when you sign in, and you approve them on Microsoft's consent screen:
+<details>
+<summary><b>The permissions it asks for, and why</b></summary>
 
 | Permission | Why |
 |---|---|
-| `Mail.ReadWrite` | Read headers; move mail to Deleted Items or Junk |
-| `Mail.Send` | Send "unsubscribe" emails for senders that only offer that |
-| `MailboxSettings.ReadWrite` | Create the inbox rule that blocks a sender |
+| `Mail.ReadWrite` | Read email headers; move old mail to Deleted Items or Junk |
+| `Mail.Send` | Send an "unsubscribe" email when that's the only option a sender offers |
+| `MailboxSettings.ReadWrite` | Create the "MailSift blocklist" inbox rule |
 | `User.Read` | Show which account is signed in |
 
-   No client secret is needed. MailSift is a "public client", the same as Outlook on your phone. The client ID isn't secret either (it appears in every sign-in URL), so it's fine to ship inside the app.
-6. Open `mailsift/client_id.txt` and paste the client ID on its own line.
-7. **Build the .exe** on a Windows PC: double-click `build_exe.bat`. It runs the tests, then builds `dist\MailSift.exe`: one file of about 25 MB, with the MailSift icon and no console window. Share that.
-   - If you put the project on GitHub, `.github/workflows/build.yml` builds the .exe for you on every push (Actions tab → Artifacts).
+Remove access any time at **account.live.com/consent/Manage**.
+</details>
 
-### Optional: tip jar
+### Verify your download
 
-To show a small **buy me a coffee** button (in the header and on the results screen), add a repo variable **`MAILSIFT_SUPPORT_URL`** with your page, e.g. `https://ko-fi.com/yourname`, then rebuild. Only `ko-fi.com`, `buymeacoffee.com`, `github.com/sponsors` and `paypal.me` links are accepted, so a tampered build can't turn it into a phishing link. Leave it unset and the button doesn't appear.
-
-### What your users will see
-
-- **Windows SmartScreen:** "Windows protected your PC", because the .exe isn't code-signed. They click *More info → Run anyway*. Getting rid of this needs a code-signing certificate, which costs money each year.
-- **Microsoft's consent screen** lists the permissions above and shows MailSift as an **unverified** app. Removing that label needs Microsoft *publisher verification*, which requires a Microsoft partner (Partner Center) account tied to a verified business domain. That's fine for friends and family; worth doing if this ever goes public.
-- Test with a mate's Hotmail before sharing widely. Microsoft's consent rules for unverified apps do change from time to time.
-
-## Running it
-
-**Your users:** double-click `MailSift.exe`. There's no console window: their browser simply opens on MailSift.
-- **To stop it:** click **quit** in the top-right of the page. If they just close the tab, MailSift shuts itself down about 10 minutes later.
-- **Launching it again while it's running** reopens the browser tab instead of starting a second copy.
-- If port 8765 is busy, it picks another free port automatically.
-
-**You, from source:** you need **Python 3.10+**. Double-click `run.bat` on Windows, or run `./run.sh` on macOS/Linux.
-
-### Try it safely first (recommended)
-
-```
-run.bat --demo        # pretend mailbox, no sign-in, nothing real happens
-run.bat --dry-run     # real scan of your mailbox, but no unsubscribing, moving or blocking
-```
-
-The `.exe` takes the same options from a command prompt, for example `MailSift.exe --dry-run`.
-
-Other options:
-- `--device-code`: sign in with a code on another device.
-- `--no-browser`: print a one-time link instead of opening the browser.
-- `--stay`: don't auto-exit when the tab is closed.
-- `--port 9000`
-
-The top of every page shows the mode: **LIVE**, **DRY RUN** or **DEMO**.
-
-## Where things are kept
-
-Everything lives in `%APPDATA%\MailSift` on Windows and `~/.mailsift` elsewhere.
-
-| File | What | Sensitive? |
-|---|---|---|
-| `token_cache.bin` | Your Microsoft sign-in (refresh token), so you needn't sign in every time | Yes, so it's **encrypted by the OS** (DPAPI / Keychain / libsecret). If no encrypted store exists, it's never written at all and kept in memory only. |
-| `mailsift.db` | Who you unsubscribed from and blocked, plus an action log | Sender addresses only, no email content |
-| `launcher.secret`, `instance.json` | Lets a second launch reuse the running copy | Readable by your user only |
-| `mailsift.log` | Start/stop and errors, small and rotated | No tokens, addresses or email content |
-| `config.json` | Only if someone pasted a client ID into the setup screen | No |
-
-**Your password is never stored anywhere.** You type it on Microsoft's own sign-in page, and MailSift only ever receives tokens.
-
-**forget me** (on the scan screen) signs you out, deletes `token_cache.bin`, and wipes `mailsift.db`. To also revoke MailSift's access on Microsoft's side, go to https://account.live.com/consent/Manage.
-
-## Security
-
-See **SECURITY.md** for the threat model, every control, and how tampering is handled.
-
-**Verify a download:** each build ships `MailSift.exe.sha256`. In a command prompt:
+Only download from this repo's **Releases** page. To check your copy is genuine, run this in a command prompt:
 
 ```
 certutil -hashfile MailSift.exe SHA256
 ```
 
-The output should match the hash in the `.sha256` file and on the GitHub Actions run page.
+The result should match `MailSift.exe.sha256` on the release. With the [GitHub CLI](https://cli.github.com/) you can also confirm it was built by this repo's workflow:
+
+```
+gh attestation verify MailSift.exe --repo deanobaker3-alt/mailsift
+```
+
+## Screenshots
+
+| Scanning | Confirming | Done |
+|---|---|---|
+| ![Scanning](docs/screenshots/2-scanning.png) | ![Confirm](docs/screenshots/4-confirm.png) | ![Stage clear](docs/screenshots/5-stage-clear.png) |
+
+*Shown in demo mode with a pretend mailbox: try it yourself with `MailSift.exe --demo`.*
+
+## FAQ
+
+**Does it work on my phone?** Not directly; it's Windows-only for now. But everything it does happens inside Outlook.com, so once you've run it on a PC, your phone's mail app shows the cleaner inbox too.
+
+**Can it delete my emails?** No. It only *moves* mail (to Deleted Items or Junk), and **undo** reverses your last clean-up. Unsubscribes can't be undone, because the request has already gone to the sender.
+
+**Will it touch my personal emails?** No. It only looks at mailing-list mail (anything with an unsubscribe header). Emails from people never appear.
+
+**Is it safe to try?** Run `MailSift.exe --dry-run` from a command prompt: it scans your real mailbox but changes nothing. Or `--demo` for a pretend mailbox.
+
+## Security
+
+The threat model and every control are in **[SECURITY.md](SECURITY.md)**. Found a problem? Please report it privately via the repo's **Security** tab rather than a public issue.
+
+## Building it yourself
+
+See **[docs/BUILDING.md](docs/BUILDING.md)**: registering your own Microsoft app, building the `.exe`, running the tests, and how releases work.
 
 ## Licence
 
-Proprietary, all rights reserved. See `LICENSE`.
+**Free for personal and non-commercial use** under PolyForm Noncommercial 1.0.0. Selling it, bundling it into a product, or using it at work needs a **commercial licence**. See **[LICENSING.md](LICENSING.md)**. Contributions welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Tests
+## Support
 
-```
-pip install -r requirements-build.txt
-python -m pytest
-```
-
-71 tests cover:
-- header parsing and classification;
-- the SSRF/rebinding guard and the Graph token-leak guard;
-- parallel-scan correctness;
-- every action path, including dry run;
-- the merged blocklist (chunking, legacy-rule migration), undo and the never-touch list;
-- the launch-key/session lock, CSRF, host checks, quit and forget-me.
-
-## Layout
-
-```
-mailsift/
-  auth.py       MSAL sign-in; token cache encrypted-or-memory-only
-  graph.py      Microsoft Graph client: per-thread sessions, Retry-After back-off, $batch
-  headers.py    List-Unsubscribe / Authentication-Results / mailto parsing
-  classify.py   one-click / mailto / web form / unverified / suspicious decisions
-  scanner.py    parallel date-window scan, grouping, ignored-unsubscribe detection
-  actions.py    unsubscribe, purge, block (inbox rule)
-  netguard.py   SSRF-safe, IP-pinned one-click POST
-  store.py      local SQLite history (+ wipe)
-  launcher.py   single instance, port choice, launcher secret
-  app.py        local Flask app: session lock, CSRF, CSP
-  demo.py       fake mailbox for --demo
-  static/       the UI: retro arcade theme, original pixel art, bundled OFL pixel fonts
-                (no inline scripts or styles; CSP-clean; nothing loaded from the internet)
-```
+MailSift is free. If it saved you some hassle, you can **[buy me a coffee](https://ko-fi.com/tlemon)**. ☕

@@ -342,24 +342,16 @@
   // ------------------------------------------------------------------ sign in
   function renderSignIn(flow) {
     flow = flow || { state: 'idle' };
-    const start = async (mode) => {
-      try { renderSignIn(await api('/api/login', mode ? { mode } : {})); } catch (e) { renderSignIn({ state: 'error', message: e.message }); }
+    const start = async () => {
+      try { renderSignIn(await api('/api/login', {})); } catch (e) { renderSignIn({ state: 'error', message: e.message }); }
     };
     const pending = flow.state === 'pending';
     const body = [];
-    if (pending && flow.mode === 'device') {
-      body.push(
-        h('p', { class: 'prompt' }, 'mailsift auth --device-code', h('span', { class: 'cursor', 'aria-hidden': 'true' })),
-        h('p', { class: 'lede' }, 'On any phone or computer, open this page and enter the code:'),
-        h('a', { href: flow.verification_uri, target: '_blank', rel: 'noopener noreferrer' }, flow.verification_uri),
-        h('div', { class: 'code' }, flow.user_code),
-        h('p', { class: 'hint' }, 'waiting for Microsoft…'));
-    } else if (pending) {
+    if (pending) {
       body.push(
         h('p', { class: 'prompt' }, 'mailsift auth --provider microsoft', h('span', { class: 'cursor', 'aria-hidden': 'true' })),
         h('p', { class: 'lede' }, 'A Microsoft sign-in tab has opened. Finish signing in there, then come back here.'),
-        h('p', { class: 'hint' }, 'waiting for Microsoft…'),
-        h('button', { type: 'button', class: 'ghost', onclick: () => start('device') }, 'no tab? use a sign-in code'));
+        h('p', { class: 'hint' }, 'waiting for Microsoft… (no tab? quit MailSift and launch it again)'));
     } else {
       body.push(
         banner(),
@@ -372,8 +364,7 @@
           h('li', {}, h('code', {}, 'User.Read'), 'show which account is signed in')),
         flow.state === 'error' ? h('p', { class: 'error', role: 'alert' }, flow.message || 'Sign-in failed') : null,
         h('div', { class: 'buttons center' },
-          h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: () => start() }, '▶ sign in with microsoft'),
-          h('button', { type: 'button', class: 'btn', onclick: () => start('device') }, 'use a code instead')),
+          h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: () => start() }, '▶ sign in with microsoft')),
         h('p', { class: 'hint' }, 'Remove access any time at account.live.com/consent/Manage'));
     }
     show(h('section', { class: 'panel hero' }, h('div', { class: 'panel-title' }, 'auth // microsoft'), body));

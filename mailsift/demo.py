@@ -171,8 +171,6 @@ class DemoAuth:
         self.flow = {"state": "done"}
         return self.flow
 
-    start_device_code = start_interactive
-
     def logout(self):
         self._signed_in = False
 

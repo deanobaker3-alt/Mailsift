@@ -21,7 +21,7 @@ TEMPLATE = f"""VSVersionInfo(
       StringStruct('FileDescription', 'MailSift subscription cleaner'),
       StringStruct('FileVersion', '{__version__}'),
       StringStruct('InternalName', 'MailSift'),
-      StringStruct('LegalCopyright', 'Copyright (c) 2026 {OWNER}. All rights reserved.'),
+      StringStruct('LegalCopyright', 'Copyright (c) 2026 {OWNER}. PolyForm Noncommercial 1.0.0; commercial licence available.'),
       StringStruct('OriginalFilename', 'MailSift.exe'),
       StringStruct('ProductName', 'MailSift'),
       StringStruct('ProductVersion', '{__version__}')])]),

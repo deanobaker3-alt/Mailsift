@@ -11,7 +11,8 @@ with other software. This is what it defends against, and how.
 3. The ability to **act** on the mailbox: send mail, move mail, create rules.
 
 The user's **password** is not an asset MailSift ever holds. Sign-in happens on
-Microsoft's own page (MSAL auth code + PKCE via the system browser, or device code),
+Microsoft's own page (MSAL auth code + PKCE via the system browser; device-code sign-in is
+deliberately unsupported and disabled on the app registration, as it's a common phishing vector),
 and MailSift only receives tokens.
 
 ## Threats and controls
@@ -35,6 +36,7 @@ and MailSift only receives tokens.
 | Over-broad block rules | Rules match the exact sender (`fromAddresses`), not a substring, so blocking `info@x.com` can't also block `sales-info@x.com`. |
 | Launch keys in logs | In the windowed `.exe` there's no console, so `--no-browser` never prints a key (it would land in the log). |
 | Oversized local requests | Request bodies are capped at 512 KB. |
+| Device-code phishing (a scammer starts a sign-in with MailSift's public client ID and tricks someone into typing the code) | Device-code sign-in is removed from the app, and "Allow public client flows" is switched off on the app registration, so Microsoft refuses it outright. |
 | Supply chain | Python dependencies are pinned to exact versions. GitHub Actions are pinned to full commit SHAs (a moved or hijacked tag can't change what runs). The workflow token is read-only and checkout doesn't persist credentials. Every build runs the tests, **Bandit** (fails on medium+) and **pip-audit** (fails on known CVEs). Dependabot raises updates weekly. |
 
 ## Tampering, copying and "theft"
@@ -51,11 +53,18 @@ obvious** and **having nothing worth stealing inside**:
   (`MailSift.exe.sha256`, also shown on the GitHub Actions run page). Anyone
   can check their copy with
   `certutil -hashfile MailSift.exe SHA256` in a command prompt.
-- **Provenance:** the .exe's Properties → Details tab carries the product
-  name, version and copyright, and the repo is private.
-- **Licence:** `LICENSE` states it's proprietary, all rights reserved, with no
-  redistribution or rebranding. Copyright exists automatically; the licence
-  makes the terms explicit.
+- **Provenance you can check:** official builds come with a signed
+  build-provenance attestation, proving the exact .exe was built by this
+  repo's GitHub workflow from a specific commit. With the GitHub CLI:
+  `gh attestation verify MailSift.exe --repo deanobaker3-alt/mailsift`.
+  The .exe's Properties → Details tab also carries the product name, version
+  and copyright.
+- **Only download official releases** from this repo's Releases page. A copy
+  from anywhere else might be modified; the checksum and attestation will
+  tell you.
+- **Licence:** dual-licensed (PolyForm Noncommercial + commercial, see
+  `LICENSING.md`). Free copies must keep the copyright notice, and nobody but
+  the copyright holder may sell it.
 - **Kill switch:** if a tampered or impersonating copy appears, the publisher
   can disable or delete the app registration in Microsoft Entra, and every
   copy (real or fake) instantly stops being able to sign in. Then rebuild
@@ -85,7 +94,9 @@ the signature), and Microsoft **publisher verification**.
 - `isRead` stands in for "opened": anyone who marks all as read will show ~100% opened.
   Emails-per-month and the "noisy" filter don't depend on it.
 
-## Reporting
+## Reporting a vulnerability
 
-Found a problem? Tell the person who gave you MailSift. Please don't open an issue
-with real email data in it.
+Please **don't** open a public issue. Use GitHub's private reporting instead:
+**Security tab → Report a vulnerability** on this repository. Include steps to
+reproduce, but never real email content, addresses or tokens. You'll get a
+reply, and credit in the release notes if you'd like it.

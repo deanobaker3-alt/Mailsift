@@ -1,4 +1,4 @@
-"""Start MailSift:  python -m mailsift [--demo] [--dry-run] [--device-code] [--port 8765] [--stay]"""
+"""Start MailSift:  python -m mailsift [--demo] [--dry-run] [--port 8765] [--stay]"""
 from __future__ import annotations
 
 import argparse
@@ -62,7 +62,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="mailsift", description="MailSift subscription cleaner")
     parser.add_argument("--demo", action="store_true", help="use a fake mailbox; nothing real is touched")
     parser.add_argument("--dry-run", action="store_true", help="scan for real, but don't unsubscribe, move or block anything")
-    parser.add_argument("--device-code", action="store_true", help="sign in with a code on another device")
     parser.add_argument("--port", type=int, default=8765, help="preferred local port (another is picked if busy)")
     parser.add_argument("--no-browser", action="store_true", help="don't open the browser; print the link instead")
     parser.add_argument("--stay", action="store_true", help="keep running even after the browser tab is closed")
@@ -103,7 +102,7 @@ def main(argv=None):
         os._exit(0)
 
     app = create_app(data_dir, port=port, demo=args.demo, dry_run=args.dry_run,
-                     device_code=args.device_code, launcher_secret=secret, shutdown=shutdown)
+                     launcher_secret=secret, shutdown=shutdown)
     state = app.config["MAILSIFT_STATE"]
     record_instance(data_dir, port)
 

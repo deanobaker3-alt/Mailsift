@@ -76,11 +76,10 @@ def _stamp() -> str:
 
 
 class AppState:
-    def __init__(self, data_dir: Path, demo=False, dry_run=False, device_code=False):
+    def __init__(self, data_dir: Path, demo=False, dry_run=False):
         self.data_dir = data_dir
         self.demo = demo
         self.dry_run = dry_run
-        self.device_code = device_code
         self.lock = threading.Lock()
         self.scan_job = {"state": "idle", "log": []}
         self.apply_job = {"state": "idle"}
@@ -156,11 +155,11 @@ def _friendly(exc: Exception) -> str:
     return f"Something went wrong ({exc.__class__.__name__}). Details are in mailsift.log."
 
 
-def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code=False,
+def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
                launcher_secret: str | None = None, shutdown=None) -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = 512 * 1024  # the UI never sends more than a few KB
-    st = AppState(data_dir, demo=demo, dry_run=dry_run, device_code=device_code)
+    st = AppState(data_dir, demo=demo, dry_run=dry_run)
     session_secret = secrets.token_urlsafe(32)
     csrf_token = secrets.token_urlsafe(32)
     cookie_name = f"mailsift_{port}"  # cookies ignore ports, so keep instances apart
@@ -266,7 +265,6 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
             auth=st.auth.flow if configured else {"state": "idle"},
             demo=st.demo,
             dry_run=st.dry_run,
-            device_code=st.device_code,
             token_store=("encrypted" if getattr(st.auth, "cache_encrypted", False) else "memory-only") if configured else None,
             support_url=support_url(),
             scan_state=st.scan_job.get("state"),
@@ -316,9 +314,9 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
     def login():
         if st.auth is None:
             return jsonify(error="not_configured", message="This copy of MailSift has no app ID yet"), 400
-        mode = (request.get_json(silent=True) or {}).get("mode")
-        use_device = mode == "device" or (mode is None and st.device_code)
-        flow = st.auth.start_device_code() if use_device else st.auth.start_interactive()
+        # Browser sign-in only (auth code + PKCE). Device-code sign-in is deliberately not
+        # supported: it's a common phishing trick, and the app registration disables it.
+        flow = st.auth.start_interactive()
         return jsonify(flow)
 
     @app.post("/api/logout")

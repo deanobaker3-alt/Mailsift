@@ -119,32 +119,6 @@ class Auth:
         threading.Thread(target=run, daemon=True).start()
         return self.flow
 
-    def start_device_code(self):
-        """For machines without a browser: sign in on any other device with a code."""
-        with self._lock:
-            if self.flow.get("state") == "pending":
-                return self.flow
-            try:
-                flow = self.app.initiate_device_flow(scopes=SCOPES)
-            except Exception as exc:
-                self.flow = {"state": "error", "message": f"Couldn't reach Microsoft sign-in ({exc.__class__.__name__})"}
-                return self.flow
-            if "user_code" not in flow:
-                self.flow = {"state": "error", "message": flow.get("error_description", "Couldn't start sign-in")}
-                return self.flow
-            self.flow = {"state": "pending", "mode": "device",
-                         "user_code": flow["user_code"], "verification_uri": flow["verification_uri"]}
-
-        def run():
-            try:
-                result = self.app.acquire_token_by_device_flow(flow)
-            except Exception as exc:
-                result = {"error": "device_flow_failed", "error_description": str(exc)}
-            self._finish(result)
-
-        threading.Thread(target=run, daemon=True).start()
-        return self.flow
-
     def logout(self):
         try:
             for account in self.app.get_accounts():
