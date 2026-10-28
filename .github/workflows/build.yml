@@ -38,6 +38,15 @@ jobs:
           if ($env:CLIENT_ID -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') { throw "MAILSIFT_CLIENT_ID isn't a GUID" }
           Add-Content -Path mailsift/client_id.txt -Value "`n$env:CLIENT_ID"
 
+      - name: Use MAILSIFT_SUPPORT_URL variable if set
+        if: ${{ vars.MAILSIFT_SUPPORT_URL != '' }}
+        shell: pwsh
+        env:
+          SUPPORT_URL: ${{ vars.MAILSIFT_SUPPORT_URL }}
+        run: |
+          if ($env:SUPPORT_URL -notmatch '^https://(ko-fi\.com|(www\.)?buymeacoffee\.com|github\.com/sponsors|paypal\.me)/[A-Za-z0-9_-]{1,64}/?$') { throw "MAILSIFT_SUPPORT_URL must be a ko-fi.com, buymeacoffee.com, github.com/sponsors or paypal.me page" }
+          Add-Content -Path mailsift/support_url.txt -Value "`n$env:SUPPORT_URL"
+
       - name: Install
         run: python -m pip install -r requirements-build.txt bandit pip-audit
 
@@ -57,7 +66,7 @@ jobs:
       - name: Build MailSift.exe
         run: |
           python tools/make_version_info.py
-          pyinstaller --noconfirm --clean --onefile --windowed --name MailSift --icon mailsift\icon.ico --version-file build\version_info.txt --add-data "mailsift\static;mailsift\static" --add-data "mailsift\client_id.txt;mailsift" mailsift_app.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name MailSift --icon mailsift\icon.ico --version-file build\version_info.txt --add-data "mailsift\static;mailsift\static" --add-data "mailsift\client_id.txt;mailsift" --add-data "mailsift\support_url.txt;mailsift" mailsift_app.py
 
       - name: Checksum
         shell: pwsh

@@ -38,6 +38,21 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 LAUNCH_KEY_TTL = 120  # seconds a one-time launch key stays valid
 BUNDLED_ID_FILE = Path(__file__).parent / "client_id.txt"
+SUPPORT_FILE = Path(__file__).parent / "support_url.txt"
+# Only well-known tip-jar sites, so a tampered build can't turn the button into a phishing link.
+SUPPORT_URL = re.compile(r"^https://(ko-fi\.com|(www\.)?buymeacoffee\.com|github\.com/sponsors|paypal\.me)/[A-Za-z0-9_-]{1,64}/?$")
+
+
+def support_url(path: Path = SUPPORT_FILE) -> str | None:
+    """The publisher's optional "buy me a coffee" link. Lines starting with # are ignored."""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and SUPPORT_URL.match(line):
+                return line
+    except OSError:
+        pass
+    return None
 
 
 def bundled_client_id(path: Path = BUNDLED_ID_FILE) -> str | None:
@@ -253,6 +268,7 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False, device_code
             dry_run=st.dry_run,
             device_code=st.device_code,
             token_store=("encrypted" if getattr(st.auth, "cache_encrypted", False) else "memory-only") if configured else None,
+            support_url=support_url(),
             scan_state=st.scan_job.get("state"),
             apply_state=st.apply_job.get("state"),
             undo_state=st.undo_job.get("state"),

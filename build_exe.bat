@@ -27,6 +27,7 @@ if errorlevel 1 (
     --icon mailsift\icon.ico --version-file build\version_info.txt ^
     --add-data "mailsift\static;mailsift\static" ^
     --add-data "mailsift\client_id.txt;mailsift" ^
+    --add-data "mailsift\support_url.txt;mailsift" ^
     mailsift_app.py || goto :fail
 
 powershell -NoProfile -Command "$h=(Get-FileHash dist\MailSift.exe -Algorithm SHA256).Hash.ToLower(); \"$h  MailSift.exe\" | Out-File -Encoding ascii dist\MailSift.exe.sha256; Write-Host SHA-256: $h"

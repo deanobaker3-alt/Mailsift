@@ -171,7 +171,18 @@
     'KWWWWWWWWWWWWK',
     '.KKKKKKKKKKKK.',
   ];
-  const PALETTE = { K: '#07040F', W: '#F4F1FF', P: '#C9B8FF', R: '#FF66C4' };
+  const PALETTE = { K: '#07040F', W: '#F4F1FF', P: '#C9B8FF', R: '#FF66C4', B: '#7A4A2A', S: '#C9B8FF' };
+  // Original pixel art: a steaming mug.
+  const MUG = [
+    '..S..S...',
+    '.S..S....',
+    'KKKKKKK..',
+    'KWWWWWKKK',
+    'KWBBBWK.K',
+    'KWBBBWK.K',
+    'KWWWWWKKK',
+    '.KKKKK...',
+  ];
   function sprite(rows, scale, cls) {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -243,8 +254,19 @@
   }
 
   // ------------------------------------------------------------------ chrome
+  function coffeeLink(text) {
+    const url = S.status && S.status.support_url;
+    if (!url || !/^https:\/\//.test(url)) return null;
+    return h('a', { class: 'coffee', href: url, target: '_blank', rel: 'noopener noreferrer' }, sprite(MUG, 2, 'sprite'), h('span', {}, text));
+  }
+
   function updateChrome(st) {
     $('version').textContent = `v${st.version}`;
+    const coffee = $('coffee');
+    if (st.support_url && /^https:\/\//.test(st.support_url)) {
+      coffee.href = st.support_url; coffee.hidden = false;
+      coffee.replaceChildren(sprite(MUG, 2, 'sprite'), h('span', {}, 'buy me a coffee'));
+    } else coffee.hidden = true;
     $('session').hidden = !st.signed_in;
     $('session-anon').hidden = st.signed_in;
     $('account-name').textContent = st.user || '';
@@ -806,7 +828,8 @@
         h('h1', {}, job.dry_run ? 'Dry run finished: here’s what would have happened' : 'Done. Your inbox just got lighter.'),
         h('p', { class: 'lede' }, needs.length
           ? `${needs.length} sender(s) need one click from you: open their unsubscribe page below.`
-          : 'MailSift remembers who you unsubscribed from. If anyone keeps emailing after a few days, the next scan flags them so you can block them.')),
+          : 'MailSift remembers who you unsubscribed from. If anyone keeps emailing after a few days, the next scan flags them so you can block them.'),
+        job.dry_run ? null : coffeeLink('Saved you some hassle? Buy me a coffee')),
       h('div', { class: 'kpis' },
         kpi(job.dry_run ? 'would unsub' : 'unsubscribed', fmt(unsubbed), 'green'), kpi(job.dry_run ? 'would block' : 'blocked', fmt(blocked), 'red'),
         kpi('need you', fmt(needs.length), 'amber'), kpi('failed', fmt(failed), failed ? 'red' : ''), kpi('processed', fmt(results.length))),

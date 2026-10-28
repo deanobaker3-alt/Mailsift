@@ -327,3 +327,8 @@ dialog::backdrop { background: rgba(7, 4, 15, 0.8); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* tip jar */
+.coffee { display: inline-flex; align-items: center; gap: 8px; font-family: var(--pixel); font-size: 9px; color: var(--edge); background: var(--amber); padding: 7px 12px; text-decoration: none; clip-path: var(--notch); box-shadow: inset 0 0 0 3px var(--edge); }
+.coffee:hover { color: var(--edge); filter: brightness(1.1); }
+.hero .coffee { margin-top: 4px; }

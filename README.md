@@ -76,6 +76,10 @@ Each person's copy runs on **their own computer**. Their mail and sign-in go fro
 7. **Build the .exe** on a Windows PC: double-click `build_exe.bat`. It runs the tests, then builds `dist\MailSift.exe`: one file of about 25 MB, with the MailSift icon and no console window. Share that.
    - If you put the project on GitHub, `.github/workflows/build.yml` builds the .exe for you on every push (Actions tab → Artifacts).
 
+### Optional: tip jar
+
+To show a small **buy me a coffee** button (in the header and on the results screen), add a repo variable **`MAILSIFT_SUPPORT_URL`** with your page, e.g. `https://ko-fi.com/yourname`, then rebuild. Only `ko-fi.com`, `buymeacoffee.com`, `github.com/sponsors` and `paypal.me` links are accepted, so a tampered build can't turn it into a phishing link. Leave it unset and the button doesn't appear.
+
 ### What your users will see
 
 - **Windows SmartScreen:** "Windows protected your PC", because the .exe isn't code-signed. They click *More info → Run anyway*. Getting rid of this needs a code-signing certificate, which costs money each year.

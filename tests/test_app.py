@@ -205,3 +205,26 @@ def test_fonts_are_served_locally(client):
         assert client.get(f"{BASE}/static/fonts/{name}").status_code == 200
     css = client.get(BASE + "/static/app.css").get_data(as_text=True)
     assert "googleapis" not in css and "/static/fonts/" in css   # no third-party requests
+
+
+@pytest.mark.parametrize("url,ok", [
+    ("https://ko-fi.com/deaner", True),
+    ("https://www.buymeacoffee.com/deaner", True),
+    ("https://github.com/sponsors/deanobaker3-alt", True),
+    ("https://paypal.me/deaner", True),
+    ("http://ko-fi.com/deaner", False),                      # not https
+    ("https://ko-fi.com.evil.example/deaner", False),        # lookalike host
+    ("https://evil.example/ko-fi.com/deaner", False),
+    ("javascript:alert(1)", False),
+    ("https://ko-fi.com/deaner?next=https://evil.example", False),
+])
+def test_support_url_allowlist(tmp_path, url, ok):
+    from mailsift.app import support_url
+    f = tmp_path / "support_url.txt"
+    f.write_text(f"# comment\n{url}\n")
+    assert (support_url(f) == url) is ok
+
+
+def test_status_exposes_support_url(client, monkeypatch):
+    monkeypatch.setattr("mailsift.app.support_url", lambda: "https://ko-fi.com/deaner")
+    assert client.get(BASE + "/api/status").get_json()["support_url"] == "https://ko-fi.com/deaner"

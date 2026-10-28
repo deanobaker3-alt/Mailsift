@@ -1,0 +1,4 @@
+# Optional: your tip-jar page, e.g. https://ko-fi.com/yourname
+# Allowed sites: ko-fi.com, buymeacoffee.com, github.com/sponsors, paypal.me
+# (or set the MAILSIFT_SUPPORT_URL repo variable and GitHub fills this in at build time)
+
