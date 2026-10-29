@@ -470,6 +470,17 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
     def undo_status():
         return jsonify(st.undo_job)
 
+    @app.post("/api/diagnostics")
+    def diagnostics():
+        # Graph allows only a few requests at once per mailbox, and a scan or
+        # clean-up is already using them.
+        if st.busy():
+            return jsonify(error="busy", message="Wait for the current scan or clean-up to finish first."), 409
+        from .diagnostics import run
+        report = run(st.graph, st.auth, st.store, demo=st.demo)
+        log.info("Diagnostics: %s problem(s) in %s checks", report["problems"], len(report["checks"]))
+        return jsonify(report)
+
     @app.get("/api/history")
     def history():
         return jsonify(items=st.store.history(), scans=st.store.scans())

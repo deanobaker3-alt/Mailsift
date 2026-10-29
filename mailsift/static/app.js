@@ -462,7 +462,9 @@
           ? h('p', { class: 'hint' }, 'Your last scan is still here. Starting a new one replaces it.')
           : null,
         S.stale ? h('p', { class: 'hint' }, 'Your last results are out of date now you’ve made changes. Scan again to see where things stand.') : null,
-        h('p', { class: 'hint' }, 'read-only · headers only · 4 parallel workers')),
+        h('p', { class: 'hint' }, 'read-only · headers only · 4 parallel workers'),
+        h('button', { type: 'button', class: 'ghost', onclick: renderDiagnostics,
+                      title: 'Tests the real connections MailSift uses on this computer' }, 'check my setup')),
       undoPanel(),
       privacyPanel());
   }
@@ -975,6 +977,61 @@
       h('p', { class: 'hint' },
         'This log lives on this computer only and is never sent anywhere. '
         + '“Forget me” on the start screen wipes it. Scan records keep counts only — no addresses.')));
+  }
+
+  // -------------------------------------------------------------- diagnostics
+  // [css class, label] per check status
+  const DIAG_TAG = { ok: ['done', 'OK'], info: ['needs_you', 'NOTE'], fail: ['failed', 'FAIL'] };
+
+  async function renderDiagnostics() {
+    const back = h('button', { type: 'button', class: 'ghost', onclick: () => goHome() }, '← back');
+    show(panel(['diagnostics // running', back],
+      h('div', { class: 'panel-body' },
+        h('p', { class: 'prompt' }, 'mailsift --self-check', h('span', { class: 'cursor', 'aria-hidden': 'true' })),
+        h('p', { class: 'hint' }, 'Testing the real connections MailSift uses. Takes a few seconds.'))));
+    announce('Running diagnostics');
+
+    let report;
+    try {
+      report = await api('/api/diagnostics', {});
+    } catch (e) {
+      if (e.message === 'locked') return;
+      return show(panel(['diagnostics // couldn’t run', back],
+        h('div', { class: 'panel-body' }, h('p', { class: 'error' }, e.message))));
+    }
+    const checks = report.checks || [];
+    const summary = report.problems ? `${report.problems} ${plural(report.problems, 'problem')} found` : 'all good';
+    announce(`Diagnostics finished: ${summary}`);
+
+    // Plain text a tester can paste to whoever gave them the app. No email
+    // address in it: none of the check details include one.
+    const plain = [`MailSift ${report.version} self-check: ${summary}`, '']
+      .concat(checks.map((c) => `[${(DIAG_TAG[c.status] || [null, c.status])[1]}] ${c.name}: ${c.detail}`))
+      .join('\n');
+    const copy = h('button', {
+      type: 'button', class: 'ghost',
+      onclick: async () => {
+        try { await navigator.clipboard.writeText(plain); copy.textContent = 'copied ✓'; } catch (e) { copy.textContent = 'copy failed'; }
+      },
+    }, 'copy report');
+
+    show(h('div', { class: 'review' },
+      panel([`diagnostics // ${summary}`, back],
+        h('ul', { class: 'results' }, checks.map((c) => {
+          const [cls, tag] = DIAG_TAG[c.status] || ['needs_you', c.status];
+          return h('li', { class: 'result' },
+            h('span', { class: `result-status ${cls}` }, tag),
+            h('span', { class: 'result-main' },
+              h('div', { class: 'result-name' }, c.name),
+              h('div', { class: 'result-outcome' }, c.detail)),
+            h('span', {}));
+        }))),
+      h('div', { class: 'buttons' },
+        h('button', { type: 'button', class: 'btn btn-go', onclick: renderDiagnostics }, '▶ run again'),
+        copy),
+      h('p', { class: 'hint' },
+        'Only Microsoft’s servers are contacted. Nothing is sent, nothing in your mailbox is changed, '
+        + 'and the copied report leaves out your email address.')));
   }
 
   // --------------------------------------------------------------------- undo

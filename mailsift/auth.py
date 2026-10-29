@@ -86,6 +86,20 @@ class Auth:
             raise NotSignedIn("Your sign-in has expired. Please sign in again.")
         return result["access_token"]
 
+    def granted_scopes(self) -> set[str] | None:
+        """Lower-cased permission names on the current token ("mail.send"...),
+        or None if that can't be told, in which case the check is skipped."""
+        try:
+            account = self.account()
+            if not account:
+                return None
+            result = self.app.acquire_token_silent(SCOPES, account=account)
+        except Exception:
+            return None
+        if not result or not result.get("scope"):
+            return None
+        return {s.rsplit("/", 1)[-1].lower() for s in str(result["scope"]).split()}
+
     def signed_in(self) -> bool:
         try:
             self.token()

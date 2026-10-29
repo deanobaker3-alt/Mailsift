@@ -234,3 +234,11 @@ def test_history_endpoint_returns_scans_and_actions(client):
     body = client.get(BASE + "/api/history").get_json()
     assert "items" in body and "scans" in body
     assert isinstance(body["scans"], list)
+
+
+def test_diagnostics_endpoint(client):
+    assert post(client, "/api/diagnostics", token=False).status_code == 403   # CSRF still applies
+    body = post(client, "/api/diagnostics").get_json()
+    assert body["checks"] and "problems" in body
+    names = {c["name"] for c in body["checks"]}
+    assert "Secure connections (one-click unsubscribe)" in names

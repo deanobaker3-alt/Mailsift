@@ -162,6 +162,11 @@ class Store:
             self.db.execute("DELETE FROM undo_blocks WHERE run_id = ?", (run_id,))
             self.db.commit()
 
+    def health(self) -> str:
+        """SQLite's own integrity check: "ok", or a description of the damage."""
+        with self._lock:
+            return str(self.db.execute("PRAGMA quick_check").fetchone()[0])
+
     # -- scan history --------------------------------------------------------
     def record_scan(self, scope, checked, found, other_senders=0, dry_run=False):
         with self._lock:
