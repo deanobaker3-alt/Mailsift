@@ -103,14 +103,17 @@
     return data;
   }
 
-  function poll(fn, ms, onError) {
+  // `immediate` fetches straight away instead of waiting out the first
+  // interval. Rejoining a job in progress needs it: half a second of empty
+  // counters before the real ones arrive reads as "that restarted it".
+  function poll(fn, ms, onError, immediate = false) {
     stopPolling();
     const tick = async () => {
       let again = false;
       try { again = await fn(); } catch (e) { if (e.message !== 'locked') (onError || renderScan)(e.message); return; }
       if (again) S.timer = setTimeout(tick, ms);
     };
-    S.timer = setTimeout(tick, ms);
+    S.timer = setTimeout(tick, immediate ? 0 : ms);
   }
 
   const fmt = (n) => Number(n || 0).toLocaleString('en-GB');
@@ -295,7 +298,8 @@
   // The logo is the home button. boot() re-reads the server's state, so if a
   // scan, clean-up or undo is running it lands back on that, and if there are
   // results it reopens them rather than losing them.
-  $('home').addEventListener('click', () => { stopPolling(); boot(); });
+  $('home').addEventListener('click', () => { stopPolling(); goHome(); });
+  $('history').addEventListener('click', () => { stopPolling(); renderHistory(); });
   $('quit').addEventListener('click', quit);
   $('quit-anon').addEventListener('click', quit);
   $('signout').addEventListener('click', async () => {
@@ -322,8 +326,25 @@
     if (!st.signed_in) return renderSignIn(st.auth);
     if (st.apply_state === 'running') return renderApplying();
     if (st.undo_state === 'running') return renderUndoing();
-    if (st.scan_state === 'running') return renderScanning();
+    if (st.scan_state === 'running') return renderScanning(true);
     if (st.has_results) return loadResults(await api('/api/scan'));
+    return renderScan();
+  }
+
+  // The logo is a main menu, not a jump back into whatever happens to be
+  // running: someone clicking it during a scan wants to leave that screen.
+  // The scan carries on server-side either way.
+  async function goHome() {
+    let st;
+    try {
+      st = S.status = await api('/api/status');
+    } catch (e) {
+      if (e.message === 'locked') return;
+      return show(panel('error // unreachable', h('div', { class: 'panel-body' }, h('p', { class: 'error' }, e.message))));
+    }
+    updateChrome(st);
+    if (!st.configured) return renderSetup();
+    if (!st.signed_in) return renderSignIn(st.auth);
     return renderScan();
   }
 
@@ -414,17 +435,23 @@
   function renderScan(error, note) {
     const opts = Object.entries(SCOPES).map(([id, label]) =>
       h('button', { type: 'button', class: 'opt', 'aria-pressed': String(S.scope === id), onclick: () => { S.scope = id; renderScan(); } }, label));
+    // Leaving a running scan is fine, it carries on server-side. But offering
+    // "start scan" while one is going is a lie, so offer the way back instead.
+    const scanning = Boolean(S.status && S.status.scan_state === 'running');
     show(
       h('section', { class: 'panel hero' },
-        h('div', { class: 'panel-title' }, h('span', {}, 'scan // config'), h('span', {}, 'ready')),
+        h('div', { class: 'panel-title' }, h('span', {}, 'scan // config'), h('span', {}, scanning ? 'scanning' : 'ready')),
         banner(),
         h('p', { class: 'prompt' }, `mailsift scan --range ${S.scope}`, h('span', { class: 'cursor', 'aria-hidden': 'true' })),
         h('p', { class: 'lede' }, 'Finds every mailing list in your mailbox and shows who sends what. Nothing is unsubscribed, blocked or moved until you choose.'),
         error ? h('p', { class: 'error', role: 'alert' }, error) : null,
         note ? h('p', { class: 'hint' }, note) : null,
         h('div', { class: 'radio-row', role: 'group', 'aria-label': 'Scan range' }, opts),
-        h('p', { class: 'press' }, 'PRESS START'),
-        h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: startScan }, '▶ start scan'),
+        h('p', { class: 'press' }, scanning ? 'SCAN IN PROGRESS' : 'PRESS START'),
+        scanning
+          ? h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: () => renderScanning(true) },
+              '▶ back to the running scan')
+          : h('button', { type: 'button', class: 'btn btn-go btn-big', onclick: startScan }, '▶ start scan'),
         // Coming back here from the review screen used to strand you: the
         // results were still held, but nothing offered a way back to them.
         S.senders.length && !S.stale
@@ -447,7 +474,10 @@
     }
   }
 
-  function renderScanning() {
+  // `resume` means we're rejoining a scan that's already running, not starting
+  // one. Without it the bar and counters climb from zero again, which reads as
+  // "clicking that restarted my scan".
+  function renderScanning(resume = false) {
     const meter = energyBar('Scan progress');
     const m = {};
     const metric = (key, label, cls) => h('div', { class: 'metric' },
@@ -461,16 +491,20 @@
           metric('lists', 'mailing lists', 'amber'), metric('rate', 'emails / sec'),
           metric('elapsed', 'elapsed'), metric('eta', 'eta'))),
       panel('scan // log', logEl)));
-    announce('Scan started');
+    announce(resume ? 'Rejoining the scan already running' : 'Scan started');
     meter.indeterminate(true);
 
     // targets come from the server; "shown" values chase them every frame
     const T = { checked: 0, found: 0, total: null, started: null };
     const V = { checked: 0, found: 0, rate: 0 };
     let ema = null; let eta = null; let last = null;
+    let snap = resume;   // first reading jumps to where the scan already is
 
     animate((dt) => {
       if (!meter.el.isConnected) return false;
+      // Rejoining: hold the placeholders rather than painting zeros for the
+      // moment it takes the first reading to arrive.
+      if (snap) return true;
       V.checked = ease(V.checked, T.checked, dt);
       V.found = ease(V.found, T.found, dt);
       if (ema !== null) V.rate = ease(V.rate, ema, dt, 3);
@@ -495,6 +529,11 @@
       }
       if (!last || job.checked !== last.checked) last = { t: now, checked: job.checked };
       Object.assign(T, { checked: job.checked || 0, found: job.found || 0, total: job.total, started: job.started });
+      if (snap) {   // rejoining: show where the scan is, don't animate up to it
+        V.checked = T.checked; V.found = T.found;
+        if (T.total) meter.set((100 * V.checked) / T.total);
+        snap = false;
+      }
       if (job.total) {
         meter.indeterminate(false);
         m.total.textContent = fmt(job.total);
@@ -505,7 +544,7 @@
       }
       renderLog(logEl, job.log || []);
       return true;
-    }, 500);
+    }, 500, null, resume);
   }
 
   function loadResults(job) {
@@ -883,6 +922,59 @@
         if (st.undo) { undoButton.hidden = false; undoButton.onclick = () => confirmUndo(st.undo); }
       }).catch(() => {});
     }
+  }
+
+  // ------------------------------------------------------------------ history
+  const when = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? String(iso || '')
+      : d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  };
+
+  function logRow(status, title, detail) {
+    return h('li', { class: 'result' },
+      h('span', { class: `result-status ${status}` }, (STATUS_TAG[status] || status).replace(/[[\]]/g, '').trim()),
+      h('span', { class: 'result-main' },
+        h('div', { class: 'result-name' }, title),
+        h('div', { class: 'result-outcome' }, detail)),
+      h('span', {}));
+  }
+
+  async function renderHistory() {
+    let data;
+    try {
+      data = await api('/api/history');
+    } catch (e) {
+      if (e.message === 'locked') return;
+      return show(panel('history // unavailable', h('div', { class: 'panel-body' }, h('p', { class: 'error' }, e.message))));
+    }
+    const scans = data.scans || [];
+    const items = data.items || [];
+    const back = h('button', { type: 'button', class: 'ghost', onclick: () => boot() }, '← back');
+
+    show(h('div', { class: 'review' },
+      panel(['history // scans', back],
+        scans.length
+          ? h('ul', { class: 'results' }, scans.map((s) => logRow(
+              s.dry_run ? 'dry_run' : 'done',
+              `${when(s.at)} · ${SCOPES[s.scope] || s.scope}`,
+              `${fmt(s.checked)} ${plural(s.checked, 'email')} checked · `
+              + `${fmt(s.found)} mailing ${plural(s.found, 'list')} found`
+              + (s.other_senders
+                ? ` · ${fmt(s.other_senders)} other ${plural(s.other_senders, 'sender')} left alone`
+                : ''))))
+          : h('div', { class: 'empty' }, 'No scans yet. Run one and it’ll show up here.')),
+      panel('history // what mailsift did',
+        items.length
+          ? h('ul', { class: 'results' }, items.map((r) => logRow(
+              r.status,
+              `${r.name || r.address} · ${ACTION_LABEL[r.action] || r.action}${r.dry_run ? ' (dry run)' : ''}`,
+              `${when(r.at)}${r.detail ? ' — ' + r.detail : ''}`)))
+          : h('div', { class: 'empty' }, 'Nothing unsubscribed or blocked yet.')),
+      h('p', { class: 'hint' },
+        'This log lives on this computer only and is never sent anywhere. '
+        + '“Forget me” on the start screen wipes it. Scan records keep counts only — no addresses.')));
   }
 
   // --------------------------------------------------------------------- undo

@@ -358,6 +358,8 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
                     else:
                         st.last_scan = result
                         st.scan_job.update(state="done", checked=result.checked, found=len(result.senders))
+                        st.store.record_scan(result.scope, result.checked, len(result.senders),
+                                             result.other_senders, st.dry_run)
                 st.scan_log(f"scan {'cancelled' if result.cancelled else 'complete'}: "
                             f"{result.checked:,} emails, {len(result.senders)} mailing lists")
             except Exception as exc:  # report to the UI rather than dying silently
@@ -470,6 +472,6 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
 
     @app.get("/api/history")
     def history():
-        return jsonify(items=st.store.history())
+        return jsonify(items=st.store.history(), scans=st.store.scans())
 
     return app

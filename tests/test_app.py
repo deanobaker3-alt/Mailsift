@@ -228,3 +228,9 @@ def test_support_url_allowlist(tmp_path, url, ok):
 def test_status_exposes_support_url(client, monkeypatch):
     monkeypatch.setattr("mailsift.app.support_url", lambda: "https://ko-fi.com/deaner")
     assert client.get(BASE + "/api/status").get_json()["support_url"] == "https://ko-fi.com/deaner"
+
+
+def test_history_endpoint_returns_scans_and_actions(client):
+    body = client.get(BASE + "/api/history").get_json()
+    assert "items" in body and "scans" in body
+    assert isinstance(body["scans"], list)

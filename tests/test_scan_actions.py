@@ -162,3 +162,24 @@ def test_non_list_mail_is_counted_but_never_listed(env):
     assert result.other_messages == 30
     # ...and she's reachable through none of the server-side action data either
     assert all(p["address"] != "mum@example.co.uk" for p in result.private.values())
+
+
+def test_scans_are_recorded_for_the_history_screen(env):
+    # The history tab needs something to show, and the record keeps counts
+    # only: no addresses, so wiping unsubscribe history isn't undone by it.
+    graph, store, _, _ = env
+    assert store.scans() == []
+
+    result = Scanner(graph, store).scan("12m")
+    store.record_scan(result.scope, result.checked, len(result.senders), result.other_senders)
+    rows = store.scans()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["scope"] == "12m"
+    assert row["checked"] == result.checked
+    assert row["found"] == len(result.senders)
+    assert row["other_senders"] == result.other_senders
+    assert set(row) == {"at", "scope", "checked", "found", "other_senders", "dry_run"}
+
+    store.wipe()
+    assert store.scans() == [], "forget me must clear scan history too"

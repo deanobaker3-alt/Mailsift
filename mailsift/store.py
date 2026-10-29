@@ -29,6 +29,17 @@ CREATE TABLE IF NOT EXISTS undo_blocks (run_id INTEGER NOT NULL, address TEXT NO
 CREATE INDEX IF NOT EXISTS undo_moves_by_run ON undo_moves (run_id);
 CREATE INDEX IF NOT EXISTS undo_blocks_by_run ON undo_blocks (run_id);
 CREATE INDEX IF NOT EXISTS runs_undone ON runs (undone, id DESC);
+-- One row per finished scan, so "what have I looked at before?" has an answer.
+-- Counts only: no addresses, nothing about who sends what.
+CREATE TABLE IF NOT EXISTS scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    checked INTEGER NOT NULL DEFAULT 0,
+    found INTEGER NOT NULL DEFAULT 0,
+    other_senders INTEGER NOT NULL DEFAULT 0,
+    dry_run INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -151,9 +162,28 @@ class Store:
             self.db.execute("DELETE FROM undo_blocks WHERE run_id = ?", (run_id,))
             self.db.commit()
 
+    # -- scan history --------------------------------------------------------
+    def record_scan(self, scope, checked, found, other_senders=0, dry_run=False):
+        with self._lock:
+            self.db.execute(
+                "INSERT INTO scans (at, scope, checked, found, other_senders, dry_run) VALUES (?,?,?,?,?,?)",
+                (now_iso(), scope, int(checked), int(found), int(other_senders), int(dry_run)),
+            )
+            self.db.commit()
+
+    def scans(self, limit=50):
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT at, scope, checked, found, other_senders, dry_run FROM scans ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        keys = ("at", "scope", "checked", "found", "other_senders", "dry_run")
+        return [dict(zip(keys, row)) for row in rows]
+
     def wipe(self):
         """Forget everything MailSift has recorded."""
         with self._lock:
+            self.db.execute("DELETE FROM scans")
             self.db.execute("DELETE FROM actions")
             self.db.execute("DELETE FROM unsubscribed")
             self.db.execute("DELETE FROM blocked")
