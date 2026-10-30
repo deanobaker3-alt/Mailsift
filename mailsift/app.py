@@ -380,7 +380,7 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
         if job.get("state") in ("done", "idle", "cancelled") and st.last_scan is not None:
             job.update(state="done", scope=st.last_scan.scope, senders=st.last_scan.senders,
                        checked=st.last_scan.checked, other_senders=st.last_scan.other_senders,
-                       other_messages=st.last_scan.other_messages)
+                       other_messages=st.last_scan.other_messages, sent_checked=st.last_scan.sent_checked)
         return jsonify(job)
 
     # -- apply -------------------------------------------------------------

@@ -21,15 +21,21 @@ SENDERS = [
     ("FitFuel Supplements", "news@fitfuel.co.uk", 133, 1, 0, "mailto", PASS, "inbox"),
     ("VoltBox Electronics", "deals@voltbox.co.uk", 96, 0, 2, "oneclick", PASS, "inbox"),
     ("Bramble Home", "style@bramblehome.co.uk", 88, 2, 3, "oneclick", PASS, "inbox"),
-    ("Wanderly Travel", "hello@wanderly.travel", 71, 8, 0, "oneclick", PASS, "inbox"),
+    ("Wanderly Travel", "hello@wanderly.travel", 71, 30, 0, "oneclick", PASS, "inbox"),
     ("The Weekly Byte", "newsletter@weeklybyte.io", 52, 64, 1, "oneclick", PASS, "inbox"),
     ("GearHub Outdoor", "team@gearhub.co.uk", 40, 22, 7, "link", PASS, "inbox"),
     ("Kiln & Clay Studio", "studio@kilnandclay.co.uk", 18, 41, 14, "mailto", PASS, "inbox"),
     ("Amazon Rewards", "claim@amaz0n-prize.top", 12, 0, 0, "oneclick", FAIL, "junkemail"),
     ("Parcel Redelivery Notice", "track@parcel-redeliver.xyz", 9, 0, 0, "link", FAIL, "junkemail"),
     ("Snackbox Club", "hello@snackboxclub.co.uk", 14, 0, 1, "oneclick", PASS, "inbox"),
+    # Same company as the first row, different address: shows company grouping.
+    ("Crust & Co Rewards", "rewards@crustandco.co.uk", 26, 4, 3, "oneclick", PASS, "inbox"),
 ]
 IGNORED_SENDER = "hello@snackboxclub.co.uk"   # pretend you unsubscribed 60 days ago and they kept going
+# You used to read these, then stopped: shows the engagement trend.
+FADED_SENDER = "hello@wanderly.travel"
+# Addresses "you" have written to: shows the Sent Items check.
+DEMO_SENT_TO = {"studio@kilnandclay.co.uk", "mum@example.co.uk"}
 
 
 def _headers(name, address, style, auth):
@@ -64,14 +70,21 @@ class DemoGraph:
         n = 0
         for name, address, count, open_pct, last_days, style, auth, folder in SENDERS:
             read_target = round(count * open_pct / 100)
+            # Ages first, consuming the random stream in the same order as
+            # always, so every other sender's data is unchanged.
+            ages = [last_days if i == 0 else rng.uniform(last_days, 360) for i in range(count)]
+            if address == FADED_SENDER:   # the opened ones are all the oldest
+                read = set(sorted(range(count), key=lambda i: -ages[i])[:read_target])
+            else:
+                read = set(range(read_target))
             for i in range(count):
                 n += 1
-                age = last_days if i == 0 else rng.uniform(last_days, 360)
+                age = ages[i]
                 self.messages.append({
                     "id": f"demo-{n}",
                     "from": {"emailAddress": {"name": name, "address": address}},
                     "receivedDateTime": (now - timedelta(days=age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "isRead": i < read_target,
+                    "isRead": i in read,
                     "parentFolderId": FOLDERS[folder],
                     "internetMessageHeaders": _headers(name, address, style, auth),
                 })
@@ -129,6 +142,9 @@ class DemoGraph:
 
     def send_mail(self, to, subject, body):
         self.sent.append({"to": to, "subject": subject, "body": body})
+
+    def sent_recipients(self, limit=2000):
+        return set(DEMO_SENT_TO)
 
     def list_rules(self):
         return list(self.rules)

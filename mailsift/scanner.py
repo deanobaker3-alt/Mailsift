@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from .classify import classify
+from .company import company_of
+from .score import RECENT_WINDOW, assess
 from .headers import (first, has_one_click, header_map, parse_auth_results,
                       parse_list_unsubscribe, split_unsubscribe_uris)
 
@@ -23,6 +25,7 @@ IGNORE_GRACE = timedelta(days=3)  # senders get a few days to act on an unsubscr
 SELECT = "id,from,receivedDateTime,isRead,parentFolderId,internetMessageHeaders"
 WORKERS = 4                       # Outlook allows 4 concurrent requests per mailbox per app
 PAGE_SIZE = 50                    # headers are chunky; bigger pages risk gateway timeouts
+SENT_LIMIT = 2000                 # newest sent emails checked for "have you written to them"
 FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -51,6 +54,7 @@ class ScanResult:
     cancelled: bool = False
     other_senders: int = 0    # senders seen but not listed: not mailing-list mail
     other_messages: int = 0
+    sent_checked: bool = False   # whether Sent Items could be read this time
 
 
 class Scanner:
@@ -86,10 +90,12 @@ class Scanner:
         if total is not None:
             log(f"mailbox reports {total:,} emails in range")
 
+        now = self.now()
         state = {
             "groups": {}, "checked": 0, "lock": threading.Lock(),
             "unsubscribed": self.store.unsubscribed(), "skip": skip, "junk": junk_id,
             "other_senders": set(), "other_count": 0,
+            "recent_since": now - RECENT_WINDOW,
         }
         progress(checked=0, found=0, total=total)
 
@@ -115,17 +121,38 @@ class Scanner:
                     progress(checked=checked, found=found, total=total)
             log(f"worker {index + 1}: done, {seen:,} emails")
 
+        sent = {"addresses": None}
+
+        def read_sent():
+            # Who you've written to: the strongest "this is wanted" signal
+            # there is. Optional by design. If Sent Items can't be read, the
+            # scan carries on and the score just goes without it.
+            fetch = getattr(self.graph, "sent_recipients", None)
+            if fetch is None or cancelled():
+                return
+            try:
+                sent["addresses"] = fetch(SENT_LIMIT)
+                log(f"sent items: checked who you've written to ({len(sent['addresses']):,} addresses)")
+            except Exception as exc:  # never let this take the scan down
+                log(f"sent items: couldn't read them ({exc.__class__.__name__}), carrying on without")
+
+        # Same pool, so it never adds to Graph's per-mailbox concurrency: it
+        # simply runs when the first date window finishes.
         with ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="scan") as pool:
             futures = [pool.submit(read_window, i, w) for i, w in enumerate(windows)]
+            sent_future = pool.submit(read_sent)
             for future in futures:
                 future.result()  # re-raises the first worker error, if any
+            sent_future.result()
 
         progress(checked=state["checked"], found=len(state["groups"]), total=total)
         result = self._build(scope, state["checked"], state["groups"], state["unsubscribed"],
-                             self.store.blocked(), self.store.protected())
+                             self.store.blocked(), self.store.protected(),
+                             emailed=sent["addresses"], now=now)
         result.cancelled = cancelled()
         result.other_senders = len(state["other_senders"])
         result.other_messages = state["other_count"]
+        result.sent_checked = sent["addresses"] is not None
         return result
 
     # ------------------------------------------------------------------
@@ -165,6 +192,7 @@ class Scanner:
                     "newest": when, "oldest": when, "ids": [], "folders": [], "after_unsub": 0,
                     "auth": parse_auth_results(hmap.get("authentication-results")), "auth_at": when,
                     "unsub_at": None, "one_click": False, "https": [], "http": [], "mailto": [],
+                    "recent": 0, "recent_read": 0, "last_read": None,
                 }
             # Workers finish in any order, so always prefer details from the newest email.
             if when >= g["auth_at"]:
@@ -174,8 +202,15 @@ class Scanner:
                 g["one_click"] = has_one_click(first(hmap, "list-unsubscribe-post"))
                 g["unsub_at"] = when
 
+            is_read = bool(msg.get("isRead"))
             g["count"] += 1
-            g["read"] += 1 if msg.get("isRead") else 0
+            g["read"] += 1 if is_read else 0
+            # Engagement trend: the last few months against everything before.
+            if when >= state["recent_since"]:
+                g["recent"] += 1
+                g["recent_read"] += 1 if is_read else 0
+            if is_read and (g["last_read"] is None or when > g["last_read"]):
+                g["last_read"] = when
             g["junk"] += 1 if state["junk"] and msg.get("parentFolderId") == state["junk"] else 0
             g["ids"].append(msg["id"])
             g["folders"].append(msg.get("parentFolderId") or "inbox")
@@ -187,7 +222,9 @@ class Scanner:
             if unsub_at and when > parse_time(unsub_at) + IGNORE_GRACE:
                 g["after_unsub"] += 1
 
-    def _build(self, scope, checked, groups, unsubscribed, blocked, protected=frozenset()) -> ScanResult:
+    def _build(self, scope, checked, groups, unsubscribed, blocked, protected=frozenset(),
+               emailed=None, now=None) -> ScanResult:
+        now = now or self.now()
         senders, private = [], {}
         for address, g in groups.items():
             name = next((n for n, _ in g["names"].most_common() if n), "") or address
@@ -217,7 +254,19 @@ class Scanner:
                 "unsubscribed_at": unsubscribed.get(address),
                 "blocked": address in blocked,
                 "protected": address in protected,
+                "junk": g["junk"],
+                "recent_count": g["recent"],
+                "recent_opened": g["recent_read"],
+                "older_count": g["count"] - g["recent"],
+                "older_opened": g["read"] - g["recent_read"],
+                # When the newest email you opened arrived (not when you read it:
+                # Outlook doesn't say).
+                "last_opened": g["last_read"].strftime(FMT) if g["last_read"] else None,
+                # None means "couldn't check", which is not the same as "no".
+                "emailed": (address in emailed) if emailed is not None else None,
             })
+            senders[-1].update(assess(senders[-1], now))
+            senders[-1].update(company_of(address, name))
             private[sid] = {
                 "address": address, "name": name, "kind": verdict["kind"],
                 "ids": list(g["ids"]), "folders": list(g["folders"]),

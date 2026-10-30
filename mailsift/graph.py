@@ -167,6 +167,24 @@ class GraphClient:
         moved = [(old, body.get("id") or old) for old, (status, body) in zip(message_ids, results) if 200 <= status < 300]
         return moved, len(results) - len(moved)
 
+    def sent_recipients(self, limit=2000) -> set[str]:
+        """Lower-cased addresses you've written to, from your newest `limit`
+        sent emails. Recipients only: no subjects, no bodies. Held in memory
+        for the scan and never stored."""
+        params = {"$select": "toRecipients,ccRecipients,bccRecipients",
+                  "$orderby": "sentDateTime desc", "$top": "200"}
+        found, seen = set(), 0
+        for msg in self.get_all("/me/mailFolders/sentitems/messages", params):
+            for field in ("toRecipients", "ccRecipients", "bccRecipients"):
+                for recipient in msg.get(field) or []:
+                    address = ((recipient or {}).get("emailAddress") or {}).get("address")
+                    if isinstance(address, str) and "@" in address:
+                        found.add(address.strip().lower())
+            seen += 1
+            if seen >= limit:
+                break
+        return found
+
     def send_mail(self, to, subject, body):
         self.request("POST", "/me/sendMail", json={
             "message": {

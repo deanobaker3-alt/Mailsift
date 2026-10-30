@@ -14,7 +14,11 @@ Works with: Hotmail, Outlook.com, Live and MSN email addresses.
 
 4. For each sender, pick keep, unsub, unsub+purge (also tidies away their old emails)
    or block. Or click "smart pick" to do the obvious ones for you.
-   Tip: sort by "most per month" to find the noisiest senders.
+   Every sender has a junk score (0 = you clearly want them, 100 = you
+   clearly don't) with the reasons written underneath. Smart pick selects
+   70 and over; 45-69 are marked "worth a look" for you to decide.
+   It never selects anyone you've sent an email to yourself.
+   Tip: senders from the same company are grouped; click the arrow to see each one.
 
    Tip: tap the star (☆) next to any sender you never want touched, like your bank.
    MailSift will leave them alone, even with "smart pick".

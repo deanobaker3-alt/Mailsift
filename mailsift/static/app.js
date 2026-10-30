@@ -34,6 +34,7 @@
     dodgy: ['suspicious', 'chip-red', 'Looks dodgy: block only, never unsubscribe'],
   };
   const SORTS = {
+    score: ['junk score', (a, b) => (b.score || 0) - (a.score || 0) || b.count - a.count],
     count: ['most emails', (a, b) => b.count - a.count],
     rate: ['most per month', (a, b) => b.per_month - a.per_month],
     open: ['least opened', (a, b) => a.open_pct - b.open_pct || b.count - a.count],
@@ -43,7 +44,8 @@
   const PAGE = 150;
 
   const S = {
-    status: null, scope: '12m', senders: [], choices: {}, tab: 'all', q: '', sort: 'count',
+    status: null, scope: '12m', senders: [], choices: {}, tab: 'all', q: '', sort: 'score',
+    group: true, open: {},   // company grouping on, and which groups are expanded
     limit: PAGE, timer: null, quitting: false,
     stale: false,   // true once a clean-up has run: the sender list no longer matches the mailbox
   };
@@ -427,6 +429,7 @@
           h('li', {}, 'Your password never touches MailSift: you sign in on Microsoft’s page.'),
           h('li', {}, tokenLine),
           h('li', {}, 'It reads email headers only, never message bodies, and everything runs on this computer. Nothing goes to whoever made or gave you the app.'),
+          h('li', {}, 'To avoid suggesting anyone you actually correspond with, it checks who your recent sent emails went to. Recipient addresses only, held in memory during the scan and never saved.'),
           h('li', {}, 'A local log of what it unsubscribed from and blocked, so it can catch senders who ignore you.')),
         h('div', { class: 'buttons' },
           h('button', { type: 'button', class: 'btn btn-warn', onclick: forget, disabled: st.demo }, 'forget me: sign out + wipe local data'))));
@@ -554,6 +557,8 @@
     S.senders = job.senders || [];
     S.otherSenders = job.other_senders || 0;      // seen but not mailing-list mail
     S.otherMessages = job.other_messages || 0;
+    S.sentChecked = job.sent_checked !== false;   // older servers didn't say: assume fine
+    S.pickNote = '';
     S.scope = job.scope || S.scope;
     S.limit = PAGE;
     const ids = new Set(S.senders.map((s) => s.id));
@@ -567,6 +572,8 @@
 
   const TABS = {
     all: ['all', () => true],
+    picks: ['smart picks', (s) => s.tier === 'pick'],
+    worth: ['worth a look', (s) => s.tier === 'suggest'],
     rare: ['opened <5%', (s) => s.open_pct < 5 && UNSUBSCRIBABLE.has(s.kind)],
     never: ['never opened', (s) => !s.read],
     noisy: ['noisy ≥4/mo', (s) => s.per_month >= 4],
@@ -599,15 +606,32 @@
     renderRows();
   }
 
+  // Payoff: roughly how many emails a year stop reaching the inbox. Based on
+  // each sender's monthly rate over the scan, so it's an estimate, and said so.
+  const perYear = (list) => Math.round(list.reduce((n, s) => n + (Number(s.per_month) || 0) * 12, 0));
+
+  // Smart pick follows the server's junk score. It only *selects* senders in
+  // the "pick" tier, with the action the score recommended, and only if that
+  // action is allowed for the sender's kind (checked again here, and again
+  // server-side when applied). "Worth a look" senders are never selected.
   function smartPick() {
-    let n = 0;
+    let picked = 0; let worth = 0;
     for (const s of S.senders) {
-      if (s.blocked || s.protected) continue;
-      if (s.kind === 'dodgy' || s.ignored) { S.choices[s.id] = 'block'; n++; } else if (s.open_pct < 5 && UNSUBSCRIBABLE.has(s.kind)) { S.choices[s.id] = 'unsubdel'; n++; }
+      if (s.protected || s.blocked || !s.suggest) continue;
+      if (s.tier === 'pick' && (ACTIONS_FOR[s.kind] || []).includes(s.suggest)) {
+        S.choices[s.id] = s.suggest; picked++;
+      } else if (s.tier === 'suggest') worth++;
     }
-    announce(`Smart pick selected ${n} senders`);
+    S.pickNote = picked
+      ? `picked ${picked}${worth ? ` · ${worth} more worth a look` : ''}`
+      : worth ? `nothing clear-cut · ${worth} worth a look` : 'nothing stands out';
+    announce(`Smart pick selected ${picked} ${plural(picked, 'sender')}${worth ? `, and ${worth} more are worth a look` : ''}`);
     renderRows();
   }
+
+  const scoreClass = (s) => (s.tier === 'pick' ? 'chip-red' : s.tier === 'suggest' ? 'chip-amber' : 'chip-dim');
+  const SCORE_TITLE = 'Junk score: 0 means you clearly want these, 100 means you clearly don’t. '
+    + 'Smart pick selects 70+; 45–69 is “worth a look”.';
 
   function authChip(label, verdict) {
     const v = verdict || 'none';
@@ -617,21 +641,31 @@
     return h('span', { class: `chip ${cls}`, title: `${label}: ${v}`, 'aria-label': `${label} ${v}` }, `${label} ${mark}`);
   }
 
-  function senderRow(s) {
+  function senderRow(s, member) {
     const current = choiceOf(s);
     const [kindText, kindClass, kindTitle] = KIND[s.kind] || KIND.none;
     const fill = h('div', { class: `meter-fill${s.open_pct < 5 ? ' low' : ''}` });
     fill.style.width = `${Math.max(s.open_pct, 2)}%`;
     const stat = (label, value, extra) => h('div', {}, h('div', { class: 'stat-label' }, label), h('div', { class: 'stat-value' }, value), extra);
-    return h('div', { class: 'row' },
+    const hasScore = typeof s.score === 'number';
+    // Spam and ignored-unsubscribe senders explain themselves on their own
+    // red lines below; the score's reasons would only repeat them.
+    const scoreWhy = hasScore && !isDodgy(s) && !s.ignored && s.score_why && s.score_why.length ? s.score_why : null;
+    return h('div', { class: `row${member ? ' row-member' : ''}` },
       h('div', { class: 'who' },
         h('div', { class: 'who-top' },
           h('span', { class: 'who-name' }, s.name),
+          hasScore ? h('span', { class: `chip ${scoreClass(s)}`, title: SCORE_TITLE }, `junk ${s.score}`) : null,
           h('span', { class: `chip ${kindClass}`, title: kindTitle }, kindText),
+          s.tier === 'suggest' && current === 'keep' && !s.protected
+            ? h('span', { class: 'chip chip-amber', title: `Suggested: ${ACTION_LABEL[s.suggest] || s.suggest}. Smart pick won't select it for you.` }, 'worth a look') : null,
+          s.emailed ? h('span', { class: 'chip chip-cyan', title: 'Found in your Sent Items, so smart pick will never select it' }, 'you’ve emailed them') : null,
+          s.trend === 'faded' ? h('span', { class: 'chip chip-amber', title: 'You used to open these and stopped' }, 'faded') : null,
           s.ignored ? h('span', { class: 'chip chip-red' }, 'ignored unsub') : null,
           s.blocked ? h('span', { class: 'chip chip-dim' }, 'blocked') : null,
           s.protected ? h('span', { class: 'chip chip-cyan' }, 'never touch') : null),
         h('span', { class: 'who-addr' }, s.address),
+        scoreWhy ? h('span', { class: 'why-score' }, scoreWhy.join(' · ')) : null,
         s.reasons && s.reasons.length ? h('span', { class: `why${s.kind === 'unverified' ? ' amber' : ''}` }, s.reasons.join(' · ')) : null,
         s.ignored ? h('span', { class: 'why' }, `still sent ${fmt(s.ignored_count)} emails after you unsubscribed: block them`) : null),
       h('div', { class: 'auth', role: 'group', 'aria-label': 'Sender authentication' },
@@ -654,6 +688,69 @@
         }, ACTION_LABEL[action]))));
   }
 
+  // -- company groups ------------------------------------------------------
+  // Grouping is only ever a view over the same senders: choices are still
+  // stored per sender, and a group action is just setChoices() over its
+  // members, so each member's own allowed actions and never-touch status
+  // still apply. Nothing about what gets sent to the server changes.
+  function toItems(list) {
+    if (!S.group) return list.map((s) => ({ s }));
+    const order = []; const byKey = new Map();
+    for (const s of list) {
+      const key = s.company || `addr:${s.address}`;
+      if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+      byKey.get(key).push(s);
+    }
+    return order.map((key) => {
+      const members = byKey.get(key);
+      return members.length > 1 ? { key, members } : { s: members[0] };
+    });
+  }
+
+  function groupRow(key, members) {
+    const lead = members.reduce((a, b) => (b.count > a.count ? b : a));
+    const count = members.reduce((n, s) => n + s.count, 0);
+    const read = members.reduce((n, s) => n + (s.read || 0), 0);
+    const perMonth = members.reduce((n, s) => n + (Number(s.per_month) || 0), 0);
+    const last = members.map((s) => s.last).sort().pop();
+    const top = members.reduce((a, b) => ((b.score || 0) > (a.score || 0) ? b : a));
+    const openPct = count ? Math.round((100 * read) / count) : 0;
+    const open = Boolean(S.open[key]);
+    const fill = h('div', { class: `meter-fill${openPct < 5 ? ' low' : ''}` });
+    fill.style.width = `${Math.max(openPct, 2)}%`;
+    const stat = (label, value, extra) => h('div', {}, h('div', { class: 'stat-label' }, label), h('div', { class: 'stat-value' }, value), extra);
+    const actionable = members.filter((s) => !s.protected);
+    const actions = ['keep', 'unsub', 'unsubdel', 'block']
+      .filter((a) => actionable.some((s) => (ACTIONS_FOR[s.kind] || ['keep']).includes(a)));
+    const allAre = (a) => actionable.length > 0 && actionable.every((s) => choiceOf(s) === a);
+    const label = lead.company_label || lead.address.split('@').pop();
+    return h('div', { class: 'row row-group' },
+      h('div', { class: 'who' },
+        h('div', { class: 'who-top' },
+          h('button', {
+            type: 'button', class: 'expand', 'aria-expanded': String(open),
+            'aria-label': `${open ? 'Hide' : 'Show'} the ${members.length} senders from ${label}`,
+            onclick: () => { S.open[key] = !open; renderRows(); },
+          }, open ? '▾' : '▸'),
+          h('span', { class: 'who-name' }, lead.name),
+          typeof top.score === 'number' ? h('span', { class: `chip ${scoreClass(top)}`, title: `${SCORE_TITLE} Shows the highest in the group.` }, `junk ${top.score}`) : null,
+          h('span', { class: 'chip chip-cyan', title: 'Several addresses from the same company' }, `${members.length} senders`)),
+        h('span', { class: 'who-addr' }, label),
+        h('span', { class: 'why-score' }, members.map((s) => s.address.split('@')[0]).join(' · '))),
+      h('div', {}),
+      h('div', { class: 'stats' },
+        stat('emails', fmt(count)),
+        stat('per mo', perMonth >= 10 ? Math.round(perMonth) : Math.round(perMonth * 10) / 10),
+        stat('opened', `${openPct}%`, h('div', { class: 'meter' }, fill)),
+        stat('last', relDate(last))),
+      h('div', { class: 'choices', role: 'group', 'aria-label': `Action for every sender from ${label}` },
+        actions.map((action) => h('button', {
+          type: 'button', class: `choice c-${action}`, 'aria-pressed': String(allAre(action)),
+          title: `${ACTION_TITLE[action]} (all ${members.length}, where allowed)`,
+          onclick: () => setChoices(members, action, `${lead.name}: ${ACTION_LABEL[action]}`),
+        }, ACTION_LABEL[action]))));
+  }
+
   async function toggleProtect(s) {
     const on = !s.protected;
     try {
@@ -665,7 +762,7 @@
     } catch (e) { if (e.message !== 'locked') announce(e.message); }
   }
 
-  let rowsEl, moreEl, tabsEl;
+  let rowsEl, moreEl, tabsEl, pickNoteEl;
 
   function renderReview() {
     const senders = S.senders;
@@ -692,6 +789,17 @@
     tabsEl = h('div', { class: 'tabs', role: 'group', 'aria-label': 'Filter senders' });
     rowsEl = h('div', { class: 'rows' });
     moreEl = h('div', { class: 'more' });
+    pickNoteEl = h('span', { class: 'pick-note', role: 'status' });
+    const groupToggle = h('button', {
+      type: 'button', class: 'ghost', 'aria-pressed': String(S.group),
+      title: 'Show several addresses from the same company as one row',
+      onclick: () => {
+        S.group = !S.group;
+        groupToggle.setAttribute('aria-pressed', String(S.group));
+        groupToggle.textContent = `group by company: ${S.group ? 'on' : 'off'}`;
+        renderRows();
+      },
+    }, `group by company: ${S.group ? 'on' : 'off'}`);
 
     show(h('div', { class: 'review' },
       h('div', { class: 'kpis' },
@@ -701,15 +809,20 @@
       panel([`senders // ${SCOPES[S.scope]}`, h('button', { type: 'button', class: 'ghost', onclick: () => renderScan() }, 'new scan')],
         h('div', { class: 'toolbar' },
           h('div', { class: 'grep' }, h('label', { for: 'grep' }, 'grep>'), search),
-          h('div', { class: 'sort' }, h('label', { for: 'sort' }, 'sort'), sort)),
+          h('div', { class: 'sort' }, h('label', { for: 'sort' }, 'sort'), sort),
+          groupToggle),
         tabsEl,
         h('div', { class: 'bulk' }, h('span', {}, 'bulk:'),
-          h('button', { type: 'button', class: 'ghost', title: 'Suspicious and ignored senders → block; opened under 5% → unsub+purge', onclick: smartPick }, 'smart pick'),
+          h('button', { type: 'button', class: 'ghost', title: 'Selects senders with a junk score of 70 or more, using the action the score suggests. 45–69 are marked “worth a look” but never selected. Anyone you’ve emailed, or on your never-touch list, is always left alone.', onclick: smartPick }, 'smart pick'),
           h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'unsub', 'Unsubscribe visible') }, 'visible: unsub'),
           h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'unsubdel', 'Unsub+purge visible') }, 'visible: unsub+purge'),
           h('button', { type: 'button', class: 'ghost', onclick: () => setChoices(visibleSenders(), 'keep', 'Reset visible') }, 'visible: keep'),
-          h('button', { type: 'button', class: 'ghost', onclick: () => { S.choices = {}; announce('All selections cleared'); renderRows(); } }, 'reset all')),
+          h('button', { type: 'button', class: 'ghost', onclick: () => { S.choices = {}; S.pickNote = ''; announce('All selections cleared'); renderRows(); } }, 'reset all'),
+          pickNoteEl),
         rowsEl, moreEl),
+      S.sentChecked === false
+        ? h('p', { class: 'hint' }, 'Couldn’t read your Sent Items this time, so “you’ve emailed them” can’t be shown and smart pick can’t use it. Everything else works as normal.')
+        : null,
       S.otherSenders
         ? h('p', { class: 'hint' },
             `Not everyone is listed: ${fmt(S.otherSenders)} other ${plural(S.otherSenders, 'sender')} `
@@ -731,8 +844,18 @@
       }, `${label} (${n})`)));
 
     const list = visibleSenders();
+    const items = toItems(list);
+    const rows = [];
+    let shownSenders = 0;
+    for (const item of items.slice(0, S.limit)) {
+      if (item.s) { rows.push(senderRow(item.s)); shownSenders++; continue; }
+      rows.push(groupRow(item.key, item.members));
+      shownSenders += item.members.length;
+      if (S.open[item.key]) rows.push(...item.members.map((s) => senderRow(s, true)));
+    }
+    if (pickNoteEl) pickNoteEl.textContent = S.pickNote || '';
     rowsEl.replaceChildren(...(list.length
-      ? list.slice(0, S.limit).map(senderRow)
+      ? rows
       : [h('div', { class: 'empty' },
           h('div', {}, '0 matches. grep harder.'),
           // Looking for someone specific and not finding them is the moment
@@ -741,8 +864,8 @@
             'Looking for a particular sender? MailSift only lists mail that carries a '
             + 'proper unsubscribe header, so personal email and senders who don’t set one '
             + 'never appear. They may also be outside your scan range — try "everything".') : null)]));
-    moreEl.replaceChildren(list.length > S.limit
-      ? h('button', { type: 'button', class: 'ghost', onclick: () => { S.limit += PAGE; renderRows(); } }, `show more (${fmt(list.length - S.limit)} hidden)`)
+    moreEl.replaceChildren(items.length > S.limit
+      ? h('button', { type: 'button', class: 'ghost', onclick: () => { S.limit += PAGE; renderRows(); } }, `show more (${fmt(list.length - shownSenders)} hidden)`)
       : h('span', { class: 'hint' }, `${fmt(list.length)} shown`));
     updateBar();
   }
@@ -765,8 +888,10 @@
     const n = t.unsub + t.block;
     actionbar.hidden = false;
     const cmd = $('cmd');
+    const year = perYear(t.list.map(([s]) => s));
     cmd.replaceChildren(n
-      ? h('span', {}, '$ mailsift apply --unsub ', h('b', {}, t.unsub), ' --block ', h('b', {}, t.block), ' --purge ', h('b', {}, fmt(t.purge)), ' emails')
+      ? h('span', {}, '$ mailsift apply --unsub ', h('b', {}, t.unsub), ' --block ', h('b', {}, t.block), ' --purge ', h('b', {}, fmt(t.purge)), ' emails',
+        year ? h('span', { class: 'payoff' }, '  # ≈ ', h('b', {}, fmt(year)), ' fewer a year') : null)
       : h('span', {}, '$ mailsift apply  # nothing selected yet'));
     $('apply').disabled = !n;
     $('apply').textContent = n ? `review & apply (${n})` : 'review & apply';
@@ -806,7 +931,8 @@
         ? `Yes, block ${legitBlocks.length === 1 ? 'that sender' : `those ${legitBlocks.length} senders`} too. Their future emails will go straight to Junk.`
         : null,
       body: [
-        h('p', {}, `Unsubscribe from ${t.unsub}, block ${t.block}, and tidy away ${fmt(t.purge)} old emails.`),
+        h('p', {}, `Unsubscribe from ${t.unsub}, block ${t.block}, and tidy away ${fmt(t.purge)} old emails.`
+          + (perYear(t.list.map(([s]) => s)) ? ` Going by how often they’ve been sending, that’s roughly ${fmt(perYear(t.list.map(([s]) => s)))} fewer emails a year.` : '')),
         blocks.length ? h('div', { class: 'block-section' },
           h('div', { class: 'block-head' }, `⛔ blocking ${blocks.length} sender${blocks.length === 1 ? '' : 's'}: every future email from them goes straight to Junk`),
           h('div', { class: 'plan' }, blocks.map(line))) : null,
@@ -886,6 +1012,11 @@
     const needs = results.filter((r) => r.status === 'needs_you');
     const undoButton = h('button', { type: 'button', class: 'btn', hidden: true }, '↶ undo this clean-up');
     const failed = results.filter((r) => r.status === 'failed').length;
+    // Payoff from what actually went through, not from what was selected.
+    const byId = new Map(S.senders.map((s) => [s.id, s]));
+    const payoff = perYear(results
+      .filter((r) => r.status === 'done' || r.status === 'dry_run')
+      .map((r) => byId.get(r.id)).filter(Boolean));
     S.choices = {};
     announce('Clean-up finished');
     const kpi = (label, value, cls) => {
@@ -899,8 +1030,10 @@
         h('div', { class: 'panel-title' }, job.dry_run ? 'apply // simulated' : 'apply // complete'),
         h('p', { class: 'stage-clear' }, job.dry_run ? 'PRACTICE ROUND!' : 'STAGE CLEAR!'),
         h('h1', {}, job.dry_run ? 'Dry run finished: here’s what would have happened' : 'Done. Your inbox just got lighter.'),
+        payoff ? h('p', { class: 'payoff-big' },
+          job.dry_run ? 'That would be roughly ' : 'That’s roughly ', h('b', {}, fmt(payoff)), ' fewer emails a year.') : null,
         h('p', { class: 'lede' }, needs.length
-          ? `${needs.length} sender(s) need one click from you: open their unsubscribe page below.`
+          ? `${needs.length} ${plural(needs.length, 'sender')} ${needs.length === 1 ? 'needs' : 'need'} one click from you: open their unsubscribe page below.`
           : 'MailSift remembers who you unsubscribed from. If anyone keeps emailing after a few days, the next scan flags them so you can block them.'),
         job.dry_run ? null : coffeeLink('Saved you some hassle? Buy me a coffee')),
       h('div', { class: 'kpis' },
