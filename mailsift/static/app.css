@@ -362,3 +362,15 @@ dialog::backdrop { background: rgba(7, 4, 15, 0.8); }
 .payoff { color: var(--green); }
 .payoff-big { font-size: 24px; color: var(--green); margin: 4px 0 8px; }
 .payoff-big b { font-family: var(--pixel); font-size: 18px; }
+
+/* -- theme switcher and theme-specific pieces (retro defaults) -------------- */
+.themes { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.themes-label { font-family: var(--pixel); font-size: 8px; color: var(--faint); margin-right: 4px; }
+.theme-btn { min-height: 28px; padding: 0 10px; border: none; cursor: pointer; background: transparent;
+             color: var(--faint); font-family: var(--body); font-size: 18px; box-shadow: inset 0 0 0 2px var(--line); }
+.theme-btn:hover { color: var(--text); }
+.theme-btn[aria-pressed="true"] { color: var(--edge); background: var(--amber); box-shadow: inset 0 0 0 2px var(--edge); }
+@media (max-width: 640px) { .themes { margin-left: 0; } }
+.score { display: contents; }
+.score-meter { display: none; }
+.only-plain { display: none; }

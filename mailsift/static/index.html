@@ -8,6 +8,7 @@
 <title>mailsift // subscription cleaner</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/themes.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -38,6 +39,12 @@
       <span id="strip-tokens">tokens: —</span>
       <span>bodies: never read</span>
       <span id="strip-mode" class="mode">mode: —</span>
+      <div class="themes" role="group" aria-label="Theme">
+        <div class="themes-label" aria-hidden="true">theme</div>
+        <button type="button" class="theme-btn" data-theme-choice="retro" aria-pressed="false">retro</button>
+        <button type="button" class="theme-btn" data-theme-choice="ops" aria-pressed="false">ops console</button>
+        <button type="button" class="theme-btn" data-theme-choice="blueprint" aria-pressed="false">blueprint</button>
+      </div>
     </div>
   </div>
 </header>

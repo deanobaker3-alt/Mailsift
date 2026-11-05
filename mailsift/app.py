@@ -40,6 +40,10 @@ LAUNCH_KEY_TTL = 120  # seconds a one-time launch key stays valid
 BUNDLED_ID_FILE = Path(__file__).parent / "client_id.txt"
 SUPPORT_FILE = Path(__file__).parent / "support_url.txt"
 # Only well-known tip-jar sites, so a tampered build can't turn the button into a phishing link.
+# Looks, chosen from the switcher in the header. Whitelisted: the value is
+# written into the page's <html> tag, so nothing else may ever get there.
+THEMES = ("retro", "ops", "blueprint")
+DEFAULT_THEME = "retro"
 SUPPORT_URL = re.compile(r"^https://(ko-fi\.com|(www\.)?buymeacoffee\.com|github\.com/sponsors|paypal\.me)/[A-Za-z0-9_-]{1,64}/?$")
 
 
@@ -88,6 +92,8 @@ class AppState:
         self.last_scan = None
         self.last_seen = time.monotonic()
         self.auth = self.graph = None
+        saved = self.config().get("theme") if not demo else None
+        self.theme = saved if saved in THEMES else DEFAULT_THEME
         self.poster = None
 
         if demo:
@@ -114,6 +120,16 @@ class AppState:
             return json.loads(self.config_path.read_text())
         except (OSError, ValueError):
             return {}
+
+    def save_theme(self, theme: str):
+        if theme not in THEMES:
+            raise ValueError("unknown theme")
+        self.theme = theme
+        if self.demo:
+            return   # demo mode writes nothing to disk
+        cfg = self.config()
+        cfg["theme"] = theme
+        self.config_path.write_text(json.dumps(cfg, indent=2))
 
     def save_client_id(self, client_id: str):
         cfg = self.config()
@@ -237,6 +253,9 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
             return send_from_directory(STATIC, "locked.html")
         st.last_seen = time.monotonic()
         html = (STATIC / "index.html").read_text(encoding="utf-8").replace("__MAILSIFT_TOKEN__", csrf_token)
+        # Set before the first paint, so the page never flashes the wrong look.
+        theme = st.theme if st.theme in THEMES else DEFAULT_THEME
+        html = html.replace('<html lang="en-GB">', f'<html lang="en-GB" data-theme="{theme}">', 1)
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
     @app.get("/static/<path:name>")
@@ -267,6 +286,7 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
             dry_run=st.dry_run,
             token_store=("encrypted" if getattr(st.auth, "cache_encrypted", False) else "memory-only") if configured else None,
             support_url=support_url(),
+            theme=st.theme,
             scan_state=st.scan_job.get("state"),
             apply_state=st.apply_job.get("state"),
             undo_state=st.undo_job.get("state"),
@@ -469,6 +489,14 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
     @app.get("/api/undo")
     def undo_status():
         return jsonify(st.undo_job)
+
+    @app.post("/api/prefs")
+    def prefs():
+        theme = (request.get_json(silent=True) or {}).get("theme")
+        if theme not in THEMES:
+            return jsonify(error="bad_theme", message="Unknown theme"), 400
+        st.save_theme(theme)
+        return jsonify(ok=True, theme=theme)
 
     @app.post("/api/diagnostics")
     def diagnostics():

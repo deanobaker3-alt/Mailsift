@@ -23,6 +23,9 @@ Works with: Hotmail, Outlook.com, Live and MSN email addresses.
    Tip: tap the star (☆) next to any sender you never want touched, like your bank.
    MailSift will leave them alone, even with "smart pick".
 
+   Tip: "theme" in the top bar switches between ops console, blueprint
+   and the original retro look. It remembers which you picked.
+
 5. Click "review & apply", check the list, then "execute". Done.
    Changed your mind? "undo last clean-up" puts the emails back and unblocks.
 

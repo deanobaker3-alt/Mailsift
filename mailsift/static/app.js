@@ -291,7 +291,7 @@
     clearInterval(S.heartbeat);
     $('session').hidden = true; $('session-anon').hidden = true;
     show(h('section', { class: 'panel hero' },
-      h('div', { class: 'panel-title' }, 'game over'),
+      h('div', { class: 'panel-title' }, h('span', { class: 'only-retro' }, 'game over'), h('span', { class: 'only-plain' }, 'session ended')),
       banner('THANKS FOR PLAYING'),
       h('h1', {}, 'MailSift has stopped'),
       h('p', { class: 'lede' }, 'You can close this tab. Launch MailSift again any time to play another round.'),
@@ -304,6 +304,32 @@
   $('history').addEventListener('click', () => { stopPolling(); renderHistory(); });
   $('quit').addEventListener('click', quit);
   $('quit-anon').addEventListener('click', quit);
+
+  // -------------------------------------------------------------------- theme
+  // The server writes the saved theme into <html data-theme> before the page
+  // paints. Switching is pure CSS from there, so it's instant and nothing on
+  // screen needs rebuilding; the choice is then saved for next launch.
+  const THEMES = ['retro', 'ops', 'blueprint'];
+  const themeButtons = Array.from(document.querySelectorAll('.theme-btn'));
+  function syncThemeButtons() {
+    const now = document.documentElement.dataset.theme || 'retro';
+    for (const b of themeButtons) b.setAttribute('aria-pressed', String(b.dataset.themeChoice === now));
+  }
+  for (const b of themeButtons) {
+    b.addEventListener('click', async () => {
+      const theme = b.dataset.themeChoice;
+      if (!THEMES.includes(theme) || theme === document.documentElement.dataset.theme) return;
+      document.documentElement.dataset.theme = theme;
+      syncThemeButtons();
+      try {
+        await api('/api/prefs', { theme });
+        announce(`Theme changed to ${b.textContent}`);
+      } catch (e) {
+        if (e.message !== 'locked') announce(`Theme changed, but it couldn’t be saved for next time (${e.message})`);
+      }
+    });
+  }
+  syncThemeButtons();
   $('signout').addEventListener('click', async () => {
     await api('/api/logout', {});
     S.senders = []; S.choices = {};
@@ -629,6 +655,19 @@
     renderRows();
   }
 
+  // Both forms are rendered; the theme's CSS shows one. The meter carries its
+  // own label for screen readers, and whichever is hidden isn't read out.
+  function scoreBadge(s, extraTitle) {
+    if (typeof s.score !== 'number') return null;
+    const lit = Math.max(0, Math.min(10, Math.round(s.score / 10)));
+    const title = SCORE_TITLE + (extraTitle || '');
+    return h('span', { class: 'score' },
+      h('span', { class: `chip score-chip ${scoreClass(s)}`, title }, `junk ${s.score}`),
+      h('span', { class: `score-meter tier-${s.tier || 'leave'}`, role: 'img', 'aria-label': `junk score ${s.score} of 100`, title },
+        Array.from({ length: 10 }, (_, i) => h('i', { class: i < lit ? 'on' : '' })),
+        h('b', {}, String(s.score))));
+  }
+
   const scoreClass = (s) => (s.tier === 'pick' ? 'chip-red' : s.tier === 'suggest' ? 'chip-amber' : 'chip-dim');
   const SCORE_TITLE = 'Junk score: 0 means you clearly want these, 100 means you clearly don’t. '
     + 'Smart pick selects 70+; 45–69 is “worth a look”.';
@@ -655,7 +694,7 @@
       h('div', { class: 'who' },
         h('div', { class: 'who-top' },
           h('span', { class: 'who-name' }, s.name),
-          hasScore ? h('span', { class: `chip ${scoreClass(s)}`, title: SCORE_TITLE }, `junk ${s.score}`) : null,
+          hasScore ? scoreBadge(s) : null,
           h('span', { class: `chip ${kindClass}`, title: kindTitle }, kindText),
           s.tier === 'suggest' && current === 'keep' && !s.protected
             ? h('span', { class: 'chip chip-amber', title: `Suggested: ${ACTION_LABEL[s.suggest] || s.suggest}. Smart pick won't select it for you.` }, 'worth a look') : null,
@@ -733,7 +772,7 @@
             onclick: () => { S.open[key] = !open; renderRows(); },
           }, open ? '▾' : '▸'),
           h('span', { class: 'who-name' }, lead.name),
-          typeof top.score === 'number' ? h('span', { class: `chip ${scoreClass(top)}`, title: `${SCORE_TITLE} Shows the highest in the group.` }, `junk ${top.score}`) : null,
+          scoreBadge(top, ' Shows the highest in the group.'),
           h('span', { class: 'chip chip-cyan', title: 'Several addresses from the same company' }, `${members.length} senders`)),
         h('span', { class: 'who-addr' }, label),
         h('span', { class: 'why-score' }, members.map((s) => s.address.split('@')[0]).join(' · '))),

@@ -242,3 +242,60 @@ def test_diagnostics_endpoint(client):
     assert body["checks"] and "problems" in body
     names = {c["name"] for c in body["checks"]}
     assert "Secure connections (one-click unsubscribe)" in names
+
+
+# -- themes ----------------------------------------------------------------------
+def page(client):
+    return client.get(BASE + "/").get_data(as_text=True)
+
+
+def test_theme_defaults_to_retro_and_is_set_before_first_paint(client):
+    assert client.get(BASE + "/api/status").get_json()["theme"] == "retro"
+    assert '<html lang="en-GB" data-theme="retro">' in page(client)
+
+
+def test_theme_change_needs_the_csrf_token(client):
+    assert post(client, "/api/prefs", {"theme": "ops"}, token=False).status_code == 403
+    assert '<html lang="en-GB" data-theme="retro">' in page(client)
+
+
+@pytest.mark.parametrize("theme", ["ops", "blueprint", "retro"])
+def test_each_theme_can_be_chosen(client, theme):
+    assert post(client, "/api/prefs", {"theme": theme}).get_json() == {"ok": True, "theme": theme}
+    assert f'data-theme="{theme}"' in page(client)
+
+
+@pytest.mark.parametrize("bad", ['"><script>alert(1)</script>', "OPS", "", None, 7, ["ops"], {"x": 1}])
+def test_only_known_themes_reach_the_page(client, bad):
+    # The value is written into the <html> tag, so the whitelist is the
+    # only thing standing between this endpoint and markup injection.
+    assert post(client, "/api/prefs", {"theme": bad}).status_code == 400
+    html = page(client)
+    assert '<html lang="en-GB" data-theme="retro">' in html
+    assert "<script>alert" not in html
+
+
+def test_theme_survives_a_restart(tmp_path):
+    first = unlock(make(tmp_path, demo=False))
+    assert post(first, "/api/prefs", {"theme": "blueprint"}).status_code == 200
+    again = unlock(make(tmp_path, demo=False))
+    assert 'data-theme="blueprint"' in page(again)
+
+
+def test_a_tampered_config_file_falls_back_to_retro(tmp_path):
+    (tmp_path / "config.json").write_text('{"theme": "\\"><img src=x onerror=alert(1)>"}')
+    html = page(unlock(make(tmp_path, demo=False)))
+    assert '<html lang="en-GB" data-theme="retro">' in html and "onerror" not in html
+
+
+def test_demo_mode_writes_no_theme_to_disk(tmp_path):
+    client = unlock(make(tmp_path))
+    post(client, "/api/prefs", {"theme": "ops"})
+    assert not (tmp_path / "config.json").exists()
+    assert 'data-theme="ops"' in page(client)
+
+
+def test_theme_fonts_and_stylesheet_are_served_locally(client):
+    for path in ("/static/themes.css", "/static/fonts/ibm-plex-sans-latin-400-normal.woff2",
+                 "/static/fonts/b612-latin-400-normal.woff2", "/static/fonts/OFL-b612.txt"):
+        assert client.get(BASE + path).status_code == 200, path

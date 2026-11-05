@@ -31,6 +31,7 @@ Then:
 - **Smart pick** does the obvious ones for you. Every sender gets a junk score from 0 to 100, with the reasons shown next to it: how much of their mail you open, how much they send, whether you've stopped opening them lately, and how much Outlook already files as junk. It only selects the clear-cut ones (70+), marks the borderline ones "worth a look", and never touches anyone you've emailed yourself.
 - **Senders from the same company are grouped**, so a brand with three mailing lists is one decision, not three. The total shows roughly how many emails a year your clean-up saves.
 - **Suspicious senders can only be blocked, never unsubscribed.** Clicking "unsubscribe" on a scam just tells them your address is live. MailSift checks SPF, DKIM and DMARC, lookalike domains (`amaz0n…`) and brand impersonation, and shows you why.
+- **Three looks, switched in the header.** *Ops console* (a mail-traffic monitoring console), *blueprint* (a technical drawing of your mailbox), and the original *retro* arcade. Your choice is remembered.
 - **Nothing is permanently deleted.** Mail goes to Deleted Items or Junk, and **undo** puts your last clean-up back.
 - **It remembers who you unsubscribed from** and flags anyone who keeps emailing anyway.
 
