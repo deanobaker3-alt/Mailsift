@@ -10,7 +10,9 @@ One pure function, no I/O, so it can be tested exhaustively. Design rules:
   never picked however rarely you open it.
 * Safe by construction. It only ever recommends an action the sender's kind
   allows (classify.ALLOWED_ACTIONS), so a suspicious sender can never be
-  recommended for unsubscribing, whatever the numbers say.
+  recommended for unsubscribing, whatever the numbers say. Senders whose only
+  unsubscribe route is emailing them are recommended for blocking instead
+  when there's nothing to suggest they're a real list (see unsub_by_email).
 * Monotonic. Opening more of a sender's mail never raises its score; more
   mail from them never lowers it. Tested.
 """
@@ -19,7 +21,9 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta
 
-from .classify import ALLOWED_ACTIONS
+from .classify import ALLOWED_ACTIONS, registrable_domain
+from .company import PLATFORMS
+from .headers import looks_like_unsubscribe_mailbox, parse_mailto
 
 RECENT_WINDOW = timedelta(days=90)   # "lately", for the engagement trend
 
@@ -80,13 +84,34 @@ def trend_of(s) -> str | None:
     return None
 
 
+def unsub_by_email(s) -> bool:
+    """Is emailing this sender's unsubscribe address a reasonable thing to
+    suggest? Mirrors Actions.may_email_unsubscribe, which enforces it for
+    real; this keeps smart pick from offering what apply would refuse."""
+    if s.get("emailed") or s.get("read"):
+        return True
+    for uri in s.get("mailto") or ():
+        mail = parse_mailto(uri)
+        if mail and (looks_like_unsubscribe_mailbox(mail["address"])
+                     or registrable_domain(mail["address"].rsplit("@", 1)[-1]) in PLATFORMS):
+            return True
+    return not (s.get("mailto") or ())   # nothing to judge: leave as it was
+
+
 def _result(score, tier, action, why, trend):
     return {"score": int(round(max(0.0, min(100.0, score)))), "tier": tier,
             "suggest": action, "score_why": why, "trend": trend}
 
 
-def _best_action(kind: str, prefer: str) -> str | None:
+def _best_action(kind: str, prefer: str, sender=None) -> str | None:
     allowed = ALLOWED_ACTIONS.get(kind, {"keep"})
+    # Unsubscribing from a mailto-only sender means emailing them. Don't put
+    # that in front of someone when the sender shows no sign of being a real
+    # mailing list: blocking gets the same quiet inbox without telling a
+    # probable spammer that the address is live.
+    if prefer in ("unsub", "unsubdel") and sender is not None and kind == "mailto" \
+            and not unsub_by_email(sender):
+        prefer = "block"
     if prefer in allowed:
         return prefer
     return "block" if "block" in allowed else None
@@ -109,10 +134,10 @@ def assess(s: dict, now: datetime) -> dict:
     if s.get("emailed"):
         return _result(5, "leave", None, ["you've emailed this address yourself"], trend)
     if s.get("ignored"):
-        return _result(97, "pick", _best_action(kind, "block"),
+        return _result(97, "pick", _best_action(kind, "block", s),
                        [f"kept emailing after you unsubscribed ({int(_num(s.get('ignored_count')))} since)"], trend)
     if kind == "dodgy":
-        return _result(95, "pick", _best_action(kind, "block"), ["looks like spam or a scam: block, never unsubscribe"], trend)
+        return _result(95, "pick", _best_action(kind, "block", s), ["looks like spam or a scam: block, never unsubscribe"], trend)
     if count == 0:
         return _result(0, "leave", None, [], trend)
 
@@ -175,16 +200,16 @@ def assess(s: dict, now: datetime) -> dict:
         # thing on offer.
         why.append("couldn't verify who sent these, so only blocking is offered")
         tier = "suggest" if score >= SUGGEST else "leave"
-        return _result(score, tier, _best_action(kind, "block") if tier != "leave" else None, why, trend)
+        return _result(score, tier, _best_action(kind, "block", s) if tier != "leave" else None, why, trend)
 
     if kind == "none":
         # A genuine list with no unsubscribe option: blocking a real sender is
         # a bigger step than unsubscribing, so it's only ever suggested.
         tier = "suggest" if score >= SUGGEST else "leave"
-        return _result(score, tier, _best_action(kind, "block") if tier != "leave" else None, why, trend)
+        return _result(score, tier, _best_action(kind, "block", s) if tier != "leave" else None, why, trend)
 
     tier = "pick" if score >= PICK else "suggest" if score >= SUGGEST else "leave"
     if thin and tier == "pick":
         tier = "suggest"   # a hard rule, not left to the arithmetic
-    action = _best_action(kind, "unsubdel") if tier != "leave" else None
+    action = _best_action(kind, "unsubdel", s) if tier != "leave" else None
     return _result(score, tier, action, why, trend)

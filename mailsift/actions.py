@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections import defaultdict
 
 from .blocklist import Blocklist
-from .classify import ALLOWED_ACTIONS
+from .classify import ALLOWED_ACTIONS, registrable_domain
+from .company import PLATFORMS
 from .graph import GraphError
-from .headers import parse_mailto
+from .headers import looks_like_unsubscribe_mailbox, parse_mailto
 from .netguard import one_click_post
 
 ACTIONS = {"keep", "unsub", "unsubdel", "block"}
@@ -78,6 +79,35 @@ class Actions:
                        result.get("outcome", ""), self.dry_run)
 
     # ------------------------------------------------------------ unsubscribe
+    @staticmethod
+    def may_email_unsubscribe(sender, to: str) -> bool:
+        """May MailSift send an unsubscribe email to this address?
+
+        Emailing is the one action with consequences outside this computer:
+        it sends from your account and tells the recipient a human reads it.
+        Authentication alone is not enough to earn that. A spammer who owns
+        their domain and configures DNS properly passes it, and MailSift was
+        duly emailing people like vonni.n@<throwaway domain> — exactly the
+        "never unsubscribe from spam" rule it exists to enforce.
+
+        So this needs a positive reason to believe the recipient is a real
+        unsubscribe system, not just the absence of a reason to doubt it.
+        Any one of these will do:
+        """
+        if not to:
+            return False
+        # ...the address looks like a list's unsubscribe mailbox, not a person
+        if looks_like_unsubscribe_mailbox(to):
+            return True
+        # ...it's an email platform's own domain, shared by all its customers
+        if registrable_domain(to.rsplit("@", 1)[-1]) in PLATFORMS:
+            return True
+        # ...you've written to them, so you already correspond
+        if sender.get("emailed"):
+            return True
+        # ...you've opened their mail, so it's wanted post badly addressed
+        return bool(sender.get("read"))
+
     def _unsubscribe(self, sender) -> dict:
         address = sender["address"]
         notes = []
@@ -91,15 +121,23 @@ class Actions:
                 return {"status": "done", "outcome": "Unsubscribed (one-click)"}
             notes.append(f"One-click failed: {detail}")
 
+        refused = None
         for uri in sender["mailto"]:
             mail = parse_mailto(uri)
             if not mail:
+                continue
+            if not self.may_email_unsubscribe(sender, mail["address"]):
+                refused = mail["address"]
                 continue
             if self.dry_run:
                 return {"status": "dry_run", "outcome": f"Would email an unsubscribe request to {mail['address']}"}
             self.graph.send_mail(mail["address"], mail["subject"], mail["body"])
             self.store.mark_unsubscribed(address, "mailto")
             return {"status": "done", "outcome": f"Unsubscribe request emailed to {mail['address']}"}
+        if refused:
+            notes.append(f"Didn't email {refused}: that's not a recognisable unsubscribe address, and you've "
+                         f"never opened anything from this sender. Replying would only confirm your address "
+                         f"is real. Block them instead")
 
         # The one-click URL is a machine endpoint (RFC 8058), not a web page.
         # Plenty of senders answer a browser opening it with a 404, so if the

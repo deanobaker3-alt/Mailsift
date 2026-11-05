@@ -77,5 +77,26 @@ def parse_mailto(uri):
     return {"address": address, "subject": "unsubscribe", "body": "unsubscribe"}
 
 
+# Words a real unsubscribe mailbox almost always contains. A mailing list's
+# unsubscribe address is a machine endpoint, not a person.
+_UNSUB_WORDS = ("unsub", "optout", "opt-out", "opt_out", "remove", "leave", "delist", "removeme",
+                "cancel", "stop", "quit", "listrequest", "list-request", "mailing", "newsletter",
+                "subscription", "subscribe", "bounce", "majordomo", "listserv", "preferences")
+# An opaque per-recipient token, e.g. unsubscribe-mc.us4_6bceaaa7f58@... The
+# length and the digits are what make it a token rather than someone's name.
+_TOKENISH = re.compile(r"[A-Za-z0-9_.+-]{16,}")
+
+
+def looks_like_unsubscribe_mailbox(address: str) -> bool:
+    """Does this address look like a list's unsubscribe system, rather than a
+    person's mailbox? Used to decide whether MailSift may email it."""
+    local = (address or "").rsplit("@", 1)[0].lower()
+    if not local:
+        return False
+    if any(word in local for word in _UNSUB_WORDS):
+        return True
+    return bool(_TOKENISH.fullmatch(local) and any(c.isdigit() for c in local))
+
+
 def emails_in(text) -> list[str]:
     return [m.lower() for m in _EMAIL.findall(text or "")]

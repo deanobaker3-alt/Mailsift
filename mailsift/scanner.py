@@ -265,10 +265,18 @@ class Scanner:
                 # None means "couldn't check", which is not the same as "no".
                 "emailed": (address in emailed) if emailed is not None else None,
             })
-            senders[-1].update(assess(senders[-1], now))
+            # assess() needs the unsubscribe addresses to judge whether
+            # emailing them is reasonable; they stay server-side afterwards.
+            senders[-1].update(assess({**senders[-1], "mailto": g["mailto"]}, now))
             senders[-1].update(company_of(address, name))
             private[sid] = {
                 "address": address, "name": name, "kind": verdict["kind"],
+                # Signals the apply step needs to decide whether MailSift may
+                # email an unsubscribe on the user's behalf. Kept server-side:
+                # the browser never gets to choose this.
+                "read": g["read"], "count": g["count"], "junk": g["junk"],
+                "score": senders[-1]["score"], "tier": senders[-1]["tier"],
+                "emailed": senders[-1]["emailed"],
                 "ids": list(g["ids"]), "folders": list(g["folders"]),
                 "https": g["https"], "http": g["http"], "mailto": g["mailto"],
             }
