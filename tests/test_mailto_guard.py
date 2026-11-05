@@ -157,3 +157,29 @@ def test_the_score_and_apply_agree_on_every_shape():
         for read, emailed in ((0, False), (4, False), (0, True)):
             s = sender(mailto=[f"mailto:{address}"], read=read, emailed=emailed)
             assert unsub_by_email(s) == Actions.may_email_unsubscribe(s, address), (address, read, emailed)
+
+
+# -- the guard must not be fooled by a word hiding inside a name -------------------
+@pytest.mark.parametrize("address", [
+    "christopher@spammer.com",      # ...chri-STOP-her
+    "cleaver@spam.net",             # ...c-LEAVE-r
+    "chris.stopford@x.com",
+    "steve.quitman@x.com",
+    "aremover@x.com",
+    "ms.cancellara@x.com",
+    "joe.bouncer@x.com",   # whole-word matching, not a prefix
+])
+def test_a_person_whose_name_contains_an_unsubscribe_word_is_still_refused(address):
+    assert looks_like_unsubscribe_mailbox(address) is False
+    sent, _ = apply_one(sender(mailto=[f"mailto:{address}"]))
+    assert sent == [], f"emailed {address}"
+
+
+@pytest.mark.parametrize("address", [
+    "unsubscribe@brand.com", "unsub@brand.com", "newsletter-unsubscribe@brand.com",
+    "list-leave@brand.com", "leave@brand.com", "remove@brand.com", "opt-out@brand.com",
+    "manage-subscription@brand.com", "email-preferences@brand.com", "abuse@brand.com",
+    "mylist-request@brand.com", "bounces+3@brand.com",
+])
+def test_real_unsubscribe_mailboxes_are_still_recognised(address):
+    assert looks_like_unsubscribe_mailbox(address) is True

@@ -77,11 +77,23 @@ def parse_mailto(uri):
     return {"address": address, "subject": "unsubscribe", "body": "unsubscribe"}
 
 
-# Words a real unsubscribe mailbox almost always contains. A mailing list's
-# unsubscribe address is a machine endpoint, not a person.
-_UNSUB_WORDS = ("unsub", "optout", "opt-out", "opt_out", "remove", "leave", "delist", "removeme",
-                "cancel", "stop", "quit", "listrequest", "list-request", "mailing", "newsletter",
-                "subscription", "subscribe", "bounce", "majordomo", "listserv", "preferences")
+# What a real unsubscribe mailbox is called. Two groups, because a plain
+# substring test let "christopher" through on "stop" and "cleaver" on
+# "leave" — handing a spammer the very reply this check exists to withhold.
+#
+# Distinctive enough to match as the start of a word ("unsubscribe",
+# "newsletter-remove"):
+_UNSUB_PREFIX = ("unsub", "optout", "opt[-_]out", "remove", "delist", "listserv",
+                 "majordomo", "mailing", "newsletter", "subscri", "preferences")
+# Short and liable to hide inside a surname, so these must be a whole word:
+# "cancel" yes, "cancellara" no; "bounces" yes, "bouncer" no.
+_UNSUB_WORD = ("leave", "cancel", "bounces?", "request", "abuse")
+# "stop" and "quit" are deliberately absent: SMS conventions, rare in email,
+# and the likeliest of all to be part of someone's name.
+_UNSUB_RE = re.compile(
+    r"(?:^|[^a-z])(?:(?:" + "|".join(_UNSUB_PREFIX) + r")"
+    r"|(?:(?:" + "|".join(_UNSUB_WORD) + r")(?:[^a-z]|$)))",
+    re.IGNORECASE)
 # An opaque per-recipient token, e.g. unsubscribe-mc.us4_6bceaaa7f58@... The
 # length and the digits are what make it a token rather than someone's name.
 _TOKENISH = re.compile(r"[A-Za-z0-9_.+-]{16,}")
@@ -93,7 +105,7 @@ def looks_like_unsubscribe_mailbox(address: str) -> bool:
     local = (address or "").rsplit("@", 1)[0].lower()
     if not local:
         return False
-    if any(word in local for word in _UNSUB_WORDS):
+    if _UNSUB_RE.search(local):
         return True
     return bool(_TOKENISH.fullmatch(local) and any(c.isdigit() for c in local))
 

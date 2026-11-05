@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+import logging
+
 from .blocklist import Blocklist
 from .classify import ALLOWED_ACTIONS, registrable_domain
 from .company import PLATFORMS
 from .graph import GraphError
 from .headers import looks_like_unsubscribe_mailbox, parse_mailto
 from .netguard import one_click_post
+
+log = logging.getLogger("mailsift")
 
 ACTIONS = {"keep", "unsub", "unsubdel", "block"}
 
@@ -32,11 +36,20 @@ class Actions:
     def apply(self, choices: dict[str, str], scan, progress=None) -> list[dict]:
         progress = progress or (lambda **_: None)
         todo = [(sid, act) for sid, act in choices.items() if act != "keep"]
-        self.run_id = None if self.dry_run else self.store.start_run()
+        self.run_id = None
         protected = self.store.protected()
         results, pending_blocks = [], []
         for done, (sid, action) in enumerate(todo, start=1):
-            result = self._apply_one(sid, action, scan, protected)
+            # Each sender stands alone. A timeout on the third of twenty used
+            # to abort the rest of the run, leaving the user with a generic
+            # error and no idea what had been done.
+            try:
+                result = self._apply_one(sid, action, scan, protected)
+            except Exception as exc:
+                log.exception("Clean-up failed for %s", sid)
+                result = {"id": sid, "name": "?", "address": "", "action": action, "status": "failed",
+                          "outcome": f"Something went wrong ({exc.__class__.__name__}); "
+                                     f"the other senders were still done. Try this one again."}
             if result.get("status") == "pending":
                 pending_blocks.append(result)
             results.append(result)
@@ -44,6 +57,16 @@ class Actions:
         if pending_blocks:
             self._finish_blocks(pending_blocks)
         return results
+
+    def _run_id(self):
+        """The undo record for this clean-up, created only once something
+        worth undoing happens. Every clean-up used to start one, so a run of
+        plain unsubscribes left a row behind that could never be undone."""
+        if self.dry_run:
+            return None
+        if self.run_id is None:
+            self.run_id = self.store.start_run()
+        return self.run_id
 
     def _apply_one(self, sid, action, scan, protected) -> dict:
         sender = scan.private.get(sid) if scan else None
@@ -171,8 +194,8 @@ class Actions:
         destination = self.graph.well_known_folder_id(folder) or folder
         origin = dict(zip(ids, sender.get("folders") or []))
         moved, failed = self.graph.move_messages(ids, destination)
-        if self.run_id is not None and moved:
-            self.store.record_moves(self.run_id, [(new, origin.get(old, "inbox")) for old, new in moved])
+        if moved and not self.dry_run:
+            self.store.record_moves(self._run_id(), [(new, origin.get(old, "inbox")) for old, new in moved])
         note = f". Moved {len(moved)} old emails to {label}"
         return note + (f" ({failed} couldn't be moved)" if failed else "")
 
@@ -196,8 +219,8 @@ class Actions:
         for r in results:
             r.update(status="done", outcome="Blocked: future emails go to Junk" + r.pop("move_note", ""))
             self.store.mark_blocked(r["address"])
-            if self.run_id is not None:
-                self.store.record_block(self.run_id, r["address"])
+            if not self.dry_run:
+                self.store.record_block(self._run_id(), r["address"])
             self.store.log(r["address"], r["name"], "block", "done", r["outcome"], False)
 
     # ------------------------------------------------------------------- undo

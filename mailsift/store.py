@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS scans (
 """
 
 
+LOG_KEEP = 2000   # most recent action-log entries kept
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -52,6 +55,11 @@ class Store:
         self._lock = threading.Lock()
         self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.executescript(SCHEMA)
+        # The action log is for reading back recently, not forever. Trimmed
+        # once on open so the file can't grow without limit over years, and
+        # so MailSift isn't quietly keeping a permanent record of every
+        # sender you ever unsubscribed from.
+        self.db.execute("DELETE FROM actions WHERE id <= (SELECT MAX(id) FROM actions) - ?", (LOG_KEEP,))
         self.db.commit()
 
     def log(self, address, name, action, status, detail="", dry_run=False):

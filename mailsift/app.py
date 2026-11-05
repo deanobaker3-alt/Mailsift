@@ -14,6 +14,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import threading
@@ -85,6 +86,7 @@ class AppState:
         self.demo = demo
         self.dry_run = dry_run
         self.lock = threading.Lock()
+        self._config_lock = threading.Lock()
         self.scan_job = {"state": "idle", "log": []}
         self.apply_job = {"state": "idle"}
         self.undo_job = {"state": "idle"}
@@ -115,6 +117,15 @@ class AppState:
     def config_path(self) -> Path:
         return self.data_dir / "config.json"
 
+    def _write_config(self, cfg: dict):
+        """Written to a temporary file and moved into place, so a crash or a
+        flat battery mid-write can't leave a truncated config behind: that
+        would read as empty and lose the user's app ID."""
+        with self._config_lock:
+            temp = self.config_path.with_suffix(".json.tmp")
+            temp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            os.replace(temp, self.config_path)
+
     def config(self) -> dict:
         try:
             return json.loads(self.config_path.read_text())
@@ -129,12 +140,12 @@ class AppState:
             return   # demo mode writes nothing to disk
         cfg = self.config()
         cfg["theme"] = theme
-        self.config_path.write_text(json.dumps(cfg, indent=2))
+        self._write_config(cfg)
 
     def save_client_id(self, client_id: str):
         cfg = self.config()
         cfg["client_id"] = client_id
-        self.config_path.write_text(json.dumps(cfg, indent=2))
+        self._write_config(cfg)
         self._init_auth(client_id)
 
     def _init_auth(self, client_id):
