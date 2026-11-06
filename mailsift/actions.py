@@ -11,7 +11,7 @@ from collections import defaultdict
 
 import logging
 
-from .blocklist import Blocklist
+from .blocklist import Blocklist, usable
 from .classify import ALLOWED_ACTIONS, registrable_domain
 from .company import PLATFORMS
 from .graph import GraphError
@@ -210,18 +210,25 @@ class Actions:
     def _finish_blocks(self, results):
         addresses = [r["address"] for r in results]
         try:
-            self.blocklist.sync(add=addresses)
+            _blocked, rejected = self.blocklist.sync(add=addresses)
         except GraphError as exc:
-            for r in results:
-                r.update(status="failed", outcome=f"Couldn't update the blocklist rule ({exc.message})" + r.pop("move_note", ""))
-                self.store.log(r["address"], r["name"], "block", "failed", r["outcome"], False)
-            return
+            rejected = {a: f"Couldn't update the blocklist rule ({exc.message})" for a in addresses}
         for r in results:
-            r.update(status="done", outcome="Blocked: future emails go to Junk" + r.pop("move_note", ""))
-            self.store.mark_blocked(r["address"])
-            if not self.dry_run:
-                self.store.record_block(self._run_id(), r["address"])
-            self.store.log(r["address"], r["name"], "block", "done", r["outcome"], False)
+            why = rejected.get(r["address"])
+            note = r.pop("move_note", "")
+            if why:
+                # Their mail was still moved to Junk, so say so: "failed" on
+                # its own would have the user wondering what did happen.
+                r.update(status="failed", outcome=f"{why}, so future emails won't be blocked{note}")
+            else:
+                r.update(status="done", outcome="Blocked: future emails go to Junk" + note)
+                # Record the address as it went into the rule, not as the
+                # sender wrote it, or "already blocked" never matches again.
+                stored = usable(r["address"]) or r["address"]
+                self.store.mark_blocked(stored)
+                if not self.dry_run:
+                    self.store.record_block(self._run_id(), stored)
+            self.store.log(r["address"], r["name"], "block", r["status"], r["outcome"], False)
 
     # ------------------------------------------------------------------- undo
     def undo(self, run_id, progress=None) -> dict:

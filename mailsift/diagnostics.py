@@ -167,6 +167,22 @@ def check_microsoft(graph, auth) -> list[dict]:
         out.append(_check("Reading the mailbox", "fail",
                           f"Couldn't read the inbox ({getattr(exc, 'message', exc.__class__.__name__)}). Scans won't work."))
 
+    # Which way this mailbox will let MailSift ask for headers decides most
+    # of how long a scan takes, and it can only be known by asking.
+    try:
+        from datetime import datetime, timedelta, timezone
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if graph.cheap_headers_work(since):
+            out.append(_check("Scan speed", "ok",
+                              "Outlook will send just the four headers MailSift reads, so scans "
+                              "download a fraction of what they otherwise would."))
+        else:
+            out.append(_check("Scan speed", "info",
+                              "Outlook won't send headers individually on this mailbox, so scans "
+                              "fetch all of them and take longer. Nothing is wrong; it's just slower."))
+    except Exception as exc:
+        out.append(_check("Scan speed", "info", f"Couldn't tell ({exc.__class__.__name__})."))
+
     try:
         rules = graph.list_rules()
         ours = sum(1 for r in rules if (r.get("displayName") or "").startswith("MailSift blocklist"))

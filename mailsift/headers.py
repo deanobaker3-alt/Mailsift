@@ -110,5 +110,20 @@ def looks_like_unsubscribe_mailbox(address: str) -> bool:
     return bool(_TOKENISH.fullmatch(local) and any(c.isdigit() for c in local))
 
 
+def normalise_address(value) -> str:
+    """The plain address out of whatever Graph hands back.
+
+    Graph passes on what was in the From header, and a sender can malform
+    that. One arrived as "<w3a9h5h2w3@...>", angle brackets and all, which
+    Outlook then refused to put in an inbox rule — failing every block in
+    that clean-up, not just the one. Cleaned at the door instead, so an odd
+    sender can't poison a rule, a comparison or the display.
+
+    Returns "" for anything with no usable address in it.
+    """
+    match = _EMAIL.search((value or "").strip())
+    return match.group(0).lower() if match else ""
+
+
 def emails_in(text) -> list[str]:
     return [m.lower() for m in _EMAIL.findall(text or "")]

@@ -16,13 +16,16 @@ from datetime import datetime, timedelta, timezone
 from .classify import classify
 from .company import company_of
 from .score import RECENT_WINDOW, assess
-from .headers import (first, has_one_click, header_map, parse_auth_results,
-                      parse_list_unsubscribe, split_unsubscribe_uris)
+from .headers import (first, has_one_click, header_map, normalise_address,
+                      parse_auth_results, parse_list_unsubscribe, split_unsubscribe_uris)
 
 SCOPES = {"12m": 365, "2y": 730, "all": None}
 SKIP_FOLDERS = ("sentitems", "drafts", "deleteditems", "outbox")
 IGNORE_GRACE = timedelta(days=3)  # senders get a few days to act on an unsubscribe
 SELECT = "id,from,receivedDateTime,isRead,parentFolderId,internetMessageHeaders"
+# The same, minus the headers: used when Outlook will send just the four
+# MailSift reads, which is most of the payload saved.
+SELECT_LIGHT = "id,from,receivedDateTime,isRead,parentFolderId"
 WORKERS = 4                       # Outlook allows 4 concurrent requests per mailbox per app
 PAGE_SIZE = 50                    # headers are chunky; bigger pages risk gateway timeouts
 SENT_LIMIT = 2000                 # newest sent emails checked for "have you written to them"
@@ -106,8 +109,12 @@ class Scanner:
         if total is not None:
             log(f"mailbox reports {total:,} emails in range")
 
+        # Checked against this mailbox, once, before any window is read.
+        cheap = self.graph.cheap_headers_work(start.strftime(FMT))
+
         now = self.now()
         state = {
+            "cheap": cheap,
             "groups": {}, "checked": 0, "lock": threading.Lock(),
             "unsubscribed": self.store.unsubscribed(), "skip": skip, "junk": junk_id,
             "other_senders": set(), "other_count": 0,
@@ -122,9 +129,12 @@ class Scanner:
         def read_window(index, window):
             a, b = window
             params = {
-                "$select": SELECT, "$top": str(self.page_size), "$orderby": "receivedDateTime desc",
+                "$select": SELECT_LIGHT if cheap else SELECT,
+                "$top": str(self.page_size), "$orderby": "receivedDateTime desc",
                 "$filter": f"receivedDateTime ge {a.strftime(FMT)} and receivedDateTime lt {b.strftime(FMT)}",
             }
+            if cheap:
+                params["$expand"] = self.graph.header_expand()
             log(f"window {index + 1}: {a:%b %Y} – {b:%b %Y}")
             seen = 0
             for msg in self.graph.list_messages(params):
@@ -178,14 +188,19 @@ class Scanner:
         if msg.get("parentFolderId") in state["skip"]:
             return
         headers = msg.get("internetMessageHeaders")
-        if headers is None:  # some mailboxes don't return headers in list calls
-            headers = self.graph.get_message_headers(msg["id"])
+        if headers is None:
+            if state["cheap"]:
+                # Outlook leaves the field out entirely when a message has
+                # none of them, which means "no such headers", not "unknown".
+                headers = self.graph.headers_from_properties(msg)
+            else:  # some mailboxes don't return headers in list calls at all
+                headers = self.graph.get_message_headers(msg["id"])
         hmap = header_map(headers)
         list_unsub = first(hmap, "list-unsubscribe")
         auth = parse_auth_results(hmap.get("authentication-results"))
 
         email = (msg.get("from") or {}).get("emailAddress") or {}
-        address = (email.get("address") or "").strip().lower()
+        address = normalise_address(email.get("address"))
 
         if not list_unsub and not first(hmap, "list-id"):
             # Not mailing-list mail, so it's never listed or touched. Counted

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 import requests
@@ -37,6 +38,7 @@ def _mid(message_id: str) -> str:
 class GraphClient:
     BASE = "https://graph.microsoft.com/v1.0"
     BATCH_SIZE = 20  # Graph's limit per $batch request
+    CONCURRENCY = 4  # Outlook's per-mailbox ceiling; more just earns 429s
 
     def __init__(self, token_provider, session_factory=requests.Session, sleep=time.sleep, on_event=None):
         self.token_provider = token_provider
@@ -91,33 +93,48 @@ class GraphClient:
             url, query = data.get("@odata.nextLink"), None  # nextLink already carries the query
 
     def batch(self, requests_list):
-        """Runs requests through $batch, 20 at a time. Returns (status, body) pairs in input order."""
-        statuses = []
-        for start in range(0, len(requests_list), self.BATCH_SIZE):
-            chunk = requests_list[start:start + self.BATCH_SIZE]
-            pending = {str(i): req for i, req in enumerate(chunk)}
-            results: dict[str, tuple] = {}
-            for attempt in range(3):
-                body = {"requests": [
-                    {"id": rid, "method": req["method"], "url": req["url"],
-                     "body": req.get("body"), "headers": {"Content-Type": "application/json"}}
-                    for rid, req in pending.items()
-                ]}
-                data = self.request("POST", "/$batch", json=body)
-                retry = {}
-                for resp in data.get("responses", []):
-                    rid, status = resp.get("id"), resp.get("status", 500)
-                    if status == 429 and attempt < 2:
-                        retry[rid] = pending[rid]
-                    else:
-                        results[rid] = (status, resp.get("body") or {})
-                if not retry:
-                    break
-                pending = retry
-                self.on_event("graph 429 inside batch: retrying in 5s")
-                self.sleep(5)
-            statuses.extend(results.get(str(i), (500, {})) for i in range(len(chunk)))
-        return statuses
+        """Runs requests through $batch, 20 at a time. Returns (status, body) pairs in input order.
+
+        The chunks go out concurrently. Tidying a single busy sender can mean
+        thousands of moves, which is a hundred chunks, and sending those one
+        after another made a clean-up take minutes of pure waiting.
+        """
+        chunks = [requests_list[i:i + self.BATCH_SIZE]
+                  for i in range(0, len(requests_list), self.BATCH_SIZE)]
+        if not chunks:
+            return []
+        if len(chunks) == 1:
+            return self._batch_chunk(chunks[0])
+        # Same ceiling the scan uses: Outlook allows only a few requests at
+        # once per mailbox, and going over earns 429s and a slower result.
+        workers = min(self.CONCURRENCY, len(chunks))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="batch") as pool:
+            done = list(pool.map(self._batch_chunk, chunks))   # map keeps input order
+        return [pair for chunk in done for pair in chunk]
+
+    def _batch_chunk(self, chunk):
+        pending = {str(i): req for i, req in enumerate(chunk)}
+        results: dict[str, tuple] = {}
+        for attempt in range(3):
+            body = {"requests": [
+                {"id": rid, "method": req["method"], "url": req["url"],
+                 "body": req.get("body"), "headers": {"Content-Type": "application/json"}}
+                for rid, req in pending.items()
+            ]}
+            data = self.request("POST", "/$batch", json=body)
+            retry = {}
+            for resp in data.get("responses", []):
+                rid, status = resp.get("id"), resp.get("status", 500)
+                if status == 429 and attempt < 2:
+                    retry[rid] = pending[rid]
+                else:
+                    results[rid] = (status, resp.get("body") or {})
+            if not retry:
+                break
+            pending = retry
+            self.on_event("graph 429 inside batch: retrying in 5s")
+            self.sleep(5)
+        return [results.get(str(i), (500, {})) for i in range(len(chunk))]
 
     # -- mailbox ---------------------------------------------------------
     def me(self):
@@ -149,6 +166,75 @@ class GraphClient:
 
     def list_messages(self, params):
         return self.get_all("/me/messages", params)
+
+    # -- asking for four headers instead of all of them ------------------
+    # MailSift reads exactly four headers, but internetMessageHeaders brings
+    # back every one: Received chains, DKIM signatures, the lot, several
+    # kilobytes a message. Outlook can return named headers individually as
+    # MAPI properties, which is a few hundred bytes instead.
+    WANTED_HEADERS = ("List-Unsubscribe", "List-Unsubscribe-Post", "List-Id", "Authentication-Results")
+    _HEADER_NAMESPACE = "{00020386-0000-0000-C000-000000000046}"
+
+    @classmethod
+    def header_expand(cls) -> str:
+        ids = " or ".join(f"id eq 'String {cls._HEADER_NAMESPACE} Name {name}'"
+                          for name in cls.WANTED_HEADERS)
+        return f"singleValueExtendedProperties($filter={ids})"
+
+    @staticmethod
+    def headers_from_properties(msg) -> list[dict]:
+        """The same [{name, value}] shape internetMessageHeaders gives."""
+        out = []
+        for prop in msg.get("singleValueExtendedProperties") or []:
+            pid = prop.get("id") or ""
+            if " Name " in pid:
+                out.append({"name": pid.split(" Name ", 1)[1], "value": prop.get("value") or ""})
+        return out
+
+    def cheap_headers_work(self, since: str) -> bool:
+        """Proves on this mailbox that the cheap request gives the same answer.
+
+        Asked for in exactly the shape the scan uses, because it's combining
+        $expand with $filter and $orderby that Outlook is most likely to
+        refuse. Both kinds of header come back in the one reply and are
+        compared against each other, so a wrong property id shows up as a
+        mismatch rather than as a scan that quietly finds nothing.
+        """
+        try:
+            data = self.request("GET", "/me/messages", params={
+                "$select": "id,internetMessageHeaders",
+                "$expand": self.header_expand(),
+                "$top": "60",
+                "$orderby": "receivedDateTime desc",
+                "$filter": f"receivedDateTime ge {since}",
+            })
+        except GraphError as exc:
+            self.on_event(f"headers: Outlook won't send them individually ({exc.status}), asking for all of them")
+            return False
+
+        wanted = {name.lower() for name in self.WANTED_HEADERS}
+        compared = 0
+        for msg in data.get("value", []):
+            full = {}
+            for item in msg.get("internetMessageHeaders") or []:
+                name = (item.get("name") or "").lower()
+                if name in wanted:
+                    full.setdefault(name, item.get("value") or "")
+            cheap = {}
+            for item in self.headers_from_properties(msg):
+                cheap.setdefault((item["name"] or "").lower(), item["value"])
+            if not full:
+                continue          # nothing to compare on this one
+            compared += 1
+            if {k: v.strip() for k, v in full.items()} != {k: v.strip() for k, v in cheap.items()}:
+                self.on_event("headers: the short form didn't match, asking for all of them")
+                return False
+        if not compared:
+            # No recent message carries any of them, so there's no evidence
+            # either way. Take the slow, certain route.
+            return False
+        self.on_event(f"headers: asking for only the {len(wanted)} MailSift reads ({compared} checked)")
+        return True
 
     def get_message_headers(self, message_id):
         data = self.request("GET", f"/me/messages/{_mid(message_id)}", params={"$select": "internetMessageHeaders"})
