@@ -4,9 +4,23 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import NamedTuple
 from urllib.parse import quote
 
 import requests
+
+# Why a scan is asking for headers the way it is.
+SHORT_HEADERS = "short headers work"
+REFUSED = "Outlook refused the request"
+MISMATCH = "the short form gave a different answer"
+NOTHING_TO_COMPARE = "no message in the window carries these headers"
+
+
+class ScanPlan(NamedTuple):
+    """How this mailbox will let a scan ask for messages."""
+    short: bool     # ask for four named headers instead of all of them
+    page: int       # messages per request
+    why: str        # one of the four reasons above
 
 
 class GraphError(Exception):
@@ -191,7 +205,36 @@ class GraphClient:
                 out.append({"name": pid.split(" Name ", 1)[1], "value": prop.get("value") or ""})
         return out
 
-    def cheap_headers_work(self, since: str) -> bool:
+    # Page sizes. 50 was chosen when every page carried every header and was
+    # already 200 KB. Asking for only four headers makes the same page about
+    # 45 KB, so the old limit now just buys needless round trips: a 26,000
+    # email scan is 520 of them at 50, and 130 at 200.
+    BIG_PAGE = 200
+    SMALL_PAGE = 50
+
+    def probe_scan_query(self, since: str) -> ScanPlan:
+        """Works out how this mailbox will let the scan ask for messages.
+
+        Both the header form and the page size are asked rather than assumed:
+        Outlook may refuse the short-header request, and may refuse a large
+        page when one is attached, and which it does can't be known from
+        here. Anything unproven falls back to the slow, certain form.
+
+        `why` carries the reason, because "proved it won't work" and "had
+        nothing to test against" lead to the same slow scan but are not the
+        same thing to say to someone. Reporting the second as the first is
+        how a diagnosis ends up confidently wrong.
+        """
+        why = NOTHING_TO_COMPARE
+        for page in (self.BIG_PAGE, self.SMALL_PAGE):
+            why = self._probe_once(since, page)
+            if why == SHORT_HEADERS:
+                self.on_event(f"scan: short headers, {page} messages a page")
+                return ScanPlan(True, page, why)
+        self.on_event(f"scan: all headers, {self.SMALL_PAGE} messages a page")
+        return ScanPlan(False, self.SMALL_PAGE, why)
+
+    def _probe_once(self, since: str, top: int) -> str:
         """Proves on this mailbox that the cheap request gives the same answer.
 
         Asked for in exactly the shape the scan uses, because it's combining
@@ -204,13 +247,13 @@ class GraphClient:
             data = self.request("GET", "/me/messages", params={
                 "$select": "id,internetMessageHeaders",
                 "$expand": self.header_expand(),
-                "$top": "60",
+                "$top": str(top),
                 "$orderby": "receivedDateTime desc",
                 "$filter": f"receivedDateTime ge {since}",
             })
         except GraphError as exc:
-            self.on_event(f"headers: Outlook won't send them individually ({exc.status}), asking for all of them")
-            return False
+            self.on_event(f"scan: Outlook refused that request ({exc.status}) at {top} a page")
+            return REFUSED
 
         wanted = {name.lower() for name in self.WANTED_HEADERS}
         compared = 0
@@ -227,14 +270,13 @@ class GraphClient:
                 continue          # nothing to compare on this one
             compared += 1
             if {k: v.strip() for k, v in full.items()} != {k: v.strip() for k, v in cheap.items()}:
-                self.on_event("headers: the short form didn't match, asking for all of them")
-                return False
+                self.on_event("scan: the short header form didn't match, asking for all of them")
+                return MISMATCH
         if not compared:
-            # No recent message carries any of them, so there's no evidence
-            # either way. Take the slow, certain route.
-            return False
-        self.on_event(f"headers: asking for only the {len(wanted)} MailSift reads ({compared} checked)")
-        return True
+            # No message in the window carries any of them, so there's no
+            # evidence either way. Take the slow, certain route.
+            return NOTHING_TO_COMPARE
+        return SHORT_HEADERS
 
     def get_message_headers(self, message_id):
         data = self.request("GET", f"/me/messages/{_mid(message_id)}", params={"$select": "internetMessageHeaders"})

@@ -7,7 +7,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
-from .graph import GraphClient, GraphError
+from .graph import MISMATCH, SHORT_HEADERS, GraphClient, GraphError, ScanPlan
 
 FOLDERS = {"inbox": "f-inbox", "junkemail": "f-junk", "sentitems": "f-sent", "drafts": "f-drafts",
            "deleteditems": "f-deleted", "outbox": "f-outbox"}
@@ -126,8 +126,13 @@ class DemoGraph:
     header_expand = GraphClient.header_expand
     headers_from_properties = staticmethod(GraphClient.headers_from_properties)
 
-    def cheap_headers_work(self, since):
-        return self.cheap_headers
+    big_pages = True
+
+    def probe_scan_query(self, since):
+        if self.cheap_headers:
+            return ScanPlan(True, GraphClient.BIG_PAGE if self.big_pages else GraphClient.SMALL_PAGE,
+                            SHORT_HEADERS)
+        return ScanPlan(False, GraphClient.SMALL_PAGE, MISMATCH)
 
     def list_messages(self, params):
         short = "$expand" in params

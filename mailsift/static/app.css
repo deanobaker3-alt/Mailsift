@@ -146,6 +146,9 @@ h2 { margin: 0; font-family: var(--pixel); font-size: 14px; }
 .lede { margin: 0; color: var(--dim); max-width: 680px; padding: 0 16px; }
 .lede.flush { padding: 0; margin-bottom: 14px; }
 .hint { margin: 0; font-size: 18px; color: var(--faint); }
+/* A hint sitting directly in a panel needs the padding its siblings carry
+   themselves, or it runs under the panel's inset border and gets clipped. */
+.panel > .hint { padding: 0 16px 16px; }
 .prompt { color: var(--green); margin: 0; }
 .prompt::before { content: "> "; color: var(--pink); }
 .press { font-family: var(--pixel); font-size: 11px; color: var(--amber); animation: blink 1s steps(2) infinite; margin: 0; }

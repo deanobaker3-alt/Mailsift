@@ -11,7 +11,9 @@ import json
 import pytest
 
 from mailsift.demo import DemoGraph, seed_demo_store
-from mailsift.graph import GraphClient, GraphError
+from mailsift.demo import DemoAuth, DemoGraph
+from mailsift.graph import (MISMATCH, NOTHING_TO_COMPARE, REFUSED, SHORT_HEADERS,
+                            GraphClient, GraphError, ScanPlan)
 from mailsift.scanner import Scanner
 from mailsift.store import Store
 
@@ -117,20 +119,20 @@ def msg(full_headers, props):
 def test_the_check_passes_when_both_agree():
     both = {"List-Unsubscribe": "<mailto:x@y.com>", "List-Id": "<news.y.com>"}
     client = make_client([{"value": [msg(both, both), msg({}, {})]}])
-    assert client.cheap_headers_work("2026-01-01T00:00:00Z") is True
+    assert client._probe_once("2026-01-01T00:00:00Z", 200) == SHORT_HEADERS
 
 
 def test_a_wrong_property_id_is_caught_rather_than_silently_finding_nothing():
     # The dangerous failure: Outlook accepts the request but matches nothing,
     # so every sender would look like ordinary mail and the scan find none.
     client = make_client([{"value": [msg({"List-Unsubscribe": "<mailto:x@y.com>"}, {})]}])
-    assert client.cheap_headers_work("2026-01-01T00:00:00Z") is False
+    assert client._probe_once("2026-01-01T00:00:00Z", 200) == MISMATCH
 
 
 def test_a_truncated_or_altered_value_is_caught():
     client = make_client([{"value": [msg({"List-Unsubscribe": "<mailto:full@y.com>"},
                                          {"List-Unsubscribe": "<mailto:tru"})]}])
-    assert client.cheap_headers_work("2026-01-01T00:00:00Z") is False
+    assert client._probe_once("2026-01-01T00:00:00Z", 200) == MISMATCH
 
 
 def test_outlook_refusing_the_request_falls_back():
@@ -140,13 +142,48 @@ def test_outlook_refusing_the_request_falls_back():
         raise GraphError(400, "Invalid $expand")
 
     g.request = refuse
-    assert g.cheap_headers_work("2026-01-01T00:00:00Z") is False
+    assert g._probe_once("2026-01-01T00:00:00Z", 200) == REFUSED
 
 
 def test_no_evidence_means_the_slow_certain_route():
     # Nothing recent carries any of the four, so there's nothing to compare.
     client = make_client([{"value": [msg({}, {}), msg({}, {})]}])
-    assert client.cheap_headers_work("2026-01-01T00:00:00Z") is False
+    # Specifically "nothing to compare", not "it doesn't work": the two lead
+    # to the same slow scan but "check my setup" must not claim the second.
+    assert client._probe_once("2026-01-01T00:00:00Z", 200) == NOTHING_TO_COMPARE
+
+
+def test_the_page_size_is_settled_by_asking_too():
+    big = {"value": [msg({"List-Unsubscribe": "<mailto:x@y.com>"},
+                         {"List-Unsubscribe": "<mailto:x@y.com>"})]}
+    assert make_client([big]).probe_scan_query("2026-01-01T00:00:00Z") == (True, GraphClient.BIG_PAGE, SHORT_HEADERS)
+
+
+def test_a_mailbox_that_refuses_a_big_page_still_gets_short_headers():
+    g = GraphClient(lambda: "t", session_factory=lambda: None, sleep=lambda s: None)
+    both = {"List-Unsubscribe": "<mailto:x@y.com>"}
+    tried = []
+
+    def answer(method, url, **kw):
+        top = int((kw.get("params") or {})["$top"])
+        tried.append(top)
+        if top > GraphClient.SMALL_PAGE:
+            raise GraphError(400, "page too large")
+        return {"value": [msg(both, both)]}
+
+    g.request = answer
+    assert g.probe_scan_query("2026-01-01T00:00:00Z") == (True, GraphClient.SMALL_PAGE, SHORT_HEADERS)
+    assert tried == [GraphClient.BIG_PAGE, GraphClient.SMALL_PAGE], "big tried first, then small"
+
+
+def test_a_mailbox_that_refuses_everything_falls_all_the_way_back():
+    g = GraphClient(lambda: "t", session_factory=lambda: None, sleep=lambda s: None)
+
+    def refuse(method, url, **kw):
+        raise GraphError(400, "no")
+
+    g.request = refuse
+    assert g.probe_scan_query("2026-01-01T00:00:00Z") == (False, GraphClient.SMALL_PAGE, REFUSED)
 
 
 def test_the_check_is_asked_in_the_same_shape_the_scan_uses():
@@ -160,7 +197,7 @@ def test_the_check_is_asked_in_the_same_shape_the_scan_uses():
         return {"value": []}
 
     g.request = capture
-    g.cheap_headers_work("2026-01-01T00:00:00Z")
+    g._probe_once("2026-01-01T00:00:00Z", 200)
     assert "$expand" in seen and "$filter" in seen and "$orderby" in seen
     assert "singleValueExtendedProperties" in seen["$expand"]
     for header in GraphClient.WANTED_HEADERS:
@@ -172,3 +209,34 @@ def test_a_failed_check_still_gives_a_correct_scan():
     seed_demo_store(store)
     graph.cheap_headers = False
     assert shape(Scanner(graph, store).scan("all")) == shape(scan_with(True)[1])
+
+
+# -- "check my setup" must not turn "can't tell" into "doesn't work" ----------
+def test_a_quiet_mailbox_is_reported_as_unknown_not_as_broken():
+    """The bug this guards: a mailbox with no list mail in the last 30 days
+    gave the probe nothing to compare, and "check my setup" reported that as
+    "Outlook won't send headers individually here" — a confident wrong
+    answer about the user's own mailbox."""
+    from mailsift.diagnostics import check_microsoft
+
+    class Quiet(DemoGraph):
+        def probe_scan_query(self, since):
+            return ScanPlan(False, GraphClient.SMALL_PAGE, NOTHING_TO_COMPARE)
+
+    speed = next(c for c in check_microsoft(Quiet(delay=0), DemoAuth())
+                 if c["name"] == "Scan speed")
+    assert "won't" not in speed["detail"] and "take longer" not in speed["detail"]
+    assert "nothing to test" in speed["detail"]
+    assert speed["status"] == "info", "not knowing is not a problem to report"
+
+
+def test_a_mailbox_that_really_refuses_is_still_reported_plainly():
+    from mailsift.diagnostics import check_microsoft
+
+    class Refusing(DemoGraph):
+        def probe_scan_query(self, since):
+            return ScanPlan(False, GraphClient.SMALL_PAGE, REFUSED)
+
+    speed = next(c for c in check_microsoft(Refusing(delay=0), DemoAuth())
+                 if c["name"] == "Scan speed")
+    assert "take longer" in speed["detail"] and REFUSED in speed["detail"]

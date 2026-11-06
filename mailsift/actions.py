@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .blocklist import Blocklist, usable
 from .classify import ALLOWED_ACTIONS, registrable_domain
@@ -21,6 +22,9 @@ from .netguard import one_click_post
 log = logging.getLogger("mailsift")
 
 ACTIONS = {"keep", "unsub", "unsubdel", "block"}
+# These go to the senders' own servers, not Microsoft, so they aren't bound
+# by Outlook's ceiling. Kept modest anyway: it's a lot of strangers' servers.
+ONE_CLICK_WORKERS = 8
 
 
 class Actions:
@@ -31,6 +35,12 @@ class Actions:
         self.poster = poster
         self.blocklist = Blocklist(graph)
         self.run_id = None
+        # Answers from this run's parallel asking phase, keyed by URL. Per
+        # instance and per run, deliberately: a one-click POST is a request
+        # to a sender, not a fact to cache. Held on the class it would be
+        # shared by every clean-up in the session, and the second one would
+        # report success without having asked anyone.
+        self._one_click: dict[str, tuple] = {}
 
     # ------------------------------------------------------------------ apply
     def apply(self, choices: dict[str, str], scan, progress=None) -> list[dict]:
@@ -38,6 +48,7 @@ class Actions:
         todo = [(sid, act) for sid, act in choices.items() if act != "keep"]
         self.run_id = None
         protected = self.store.protected()
+        self._one_click = self._ask_senders_in_parallel(todo, scan, protected, progress)
         results, pending_blocks = [], []
         for done, (sid, action) in enumerate(todo, start=1):
             # Each sender stands alone. A timeout on the third of twenty used
@@ -57,6 +68,57 @@ class Actions:
         if pending_blocks:
             self._finish_blocks(pending_blocks)
         return results
+
+    def _ask_senders_in_parallel(self, todo, scan, protected, progress):
+        """Sends every one-click unsubscribe at once, before the main loop.
+
+        These go to the senders' own servers, not Microsoft, so Outlook's
+        per-mailbox request ceiling doesn't apply and there's no reason to
+        queue them. Each waits up to 15 seconds for a reply, and a clean-up
+        of ninety senders spent most of its time doing that one at a time.
+
+        Only the asking is parallel. Everything that changes the mailbox
+        still happens in order, in the loop, one sender at a time.
+        """
+        if self.dry_run:
+            return {}
+        urls = []
+        for sid, action in todo:
+            sender = scan.private.get(sid) if scan else None
+            if (action in ("unsub", "unsubdel") and sender
+                    and sender["address"] not in protected
+                    and sender["kind"] == "oneclick" and sender["https"]):
+                # Two addresses at one company often publish the same link.
+                # Asking it twice is a wasted round trip, and unsubscribing
+                # one of them was always going to unsubscribe both: that's
+                # the sender's own doing, not something MailSift can split.
+                url = sender["https"][0]
+                if url not in urls:
+                    urls.append(url)
+        if len(urls) < 2:
+            return {}
+
+        answers: dict[str, tuple] = {}
+        workers = min(ONE_CLICK_WORKERS, len(urls))
+        # Said before the waiting starts, not as answers come back. They
+        # mostly arrive together at the end, so a note posted only on each
+        # answer is on screen for a few milliseconds and the user watches a
+        # bar sit at zero for the whole wait, which is the thing it is for.
+        progress(done=0, total=len(todo),
+                 note=f"asking {len(urls)} senders to unsubscribe you…")
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="unsub") as pool:
+            futures = {pool.submit(self._ask_one, url): url for url in urls}
+            for finished, future in enumerate(as_completed(futures), start=1):
+                answers[futures[future]] = future.result()
+                progress(done=0, total=len(todo),
+                         note=f"asking senders to unsubscribe you… {finished} of {len(urls)}")
+        return answers
+
+    def _ask_one(self, url):
+        try:
+            return self.poster(url)
+        except Exception as exc:   # the loop reports it against the right sender
+            return False, f"Couldn't reach the sender ({exc.__class__.__name__})"
 
     def _run_id(self):
         """The undo record for this clean-up, created only once something
@@ -138,7 +200,9 @@ class Actions:
         if sender["kind"] == "oneclick" and sender["https"]:
             if self.dry_run:
                 return {"status": "dry_run", "outcome": "Would send a one-click unsubscribe"}
-            ok, detail = self.poster(sender["https"][0])
+            # Already asked, in parallel, before the loop started.
+            url = sender["https"][0]
+            ok, detail = self._one_click.get(url) or self.poster(url)
             if ok:
                 self.store.mark_unsubscribed(address, "oneclick")
                 return {"status": "done", "outcome": "Unsubscribed (one-click)"}

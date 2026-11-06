@@ -1006,8 +1006,11 @@
     const m = {};
     const metric = (key, label, cls) => h('div', { class: 'metric' }, h('div', { class: 'metric-label' }, label), (m[key] = h('div', { class: `metric-value ${cls || ''}` }, '0')));
     const logEl = h('div', { class: 'log', role: 'log', 'aria-label': 'Clean-up log' });
+    // Every one-click goes out at once before the first sender is finished,
+    // so without this the bar sits at zero and looks stuck.
+    const noteEl = h('p', { class: 'hint', role: 'status' });
     show(h('div', { class: 'console' },
-      panel('apply // telemetry', meter.wrap, h('div', { class: 'metrics' },
+      panel('apply // telemetry', meter.wrap, noteEl, h('div', { class: 'metrics' },
         metric('done', 'processed', 'green'), metric('total', 'queued'), metric('you', 'need you', 'amber'), metric('fail', 'failed', 'red'))),
       panel('apply // log', logEl)));
     const T = { done: 0, total: 1 };
@@ -1023,6 +1026,7 @@
       const job = await api('/api/apply');
       const results = job.results || [];
       T.done = job.done || results.length; T.total = job.total || 1;
+      noteEl.textContent = job.note || '';
       m.total.textContent = fmt(job.total);
       m.you.textContent = fmt(results.filter((r) => r.status === 'needs_you').length);
       m.fail.textContent = fmt(results.filter((r) => r.status === 'failed').length);

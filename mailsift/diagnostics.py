@@ -21,6 +21,7 @@ import time
 import certifi
 
 from . import __version__
+from .graph import NOTHING_TO_COMPARE
 from .netguard import USER_AGENT, UnsafeURL, _pinned_pool, _trust_store, check_url
 
 # A Microsoft host, so the check adds no new third party. Deliberately not
@@ -172,14 +173,24 @@ def check_microsoft(graph, auth) -> list[dict]:
     try:
         from datetime import datetime, timedelta, timezone
         since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        if graph.cheap_headers_work(since):
+        short, page, why = graph.probe_scan_query(since)
+        if short:
             out.append(_check("Scan speed", "ok",
-                              "Outlook will send just the four headers MailSift reads, so scans "
-                              "download a fraction of what they otherwise would."))
+                              f"Outlook sends just the four headers MailSift reads, {page:,} emails "
+                              f"a request. That's as quick as scanning gets."))
+        elif why == NOTHING_TO_COMPARE:
+            # Say what was actually found. Reporting this as "Outlook won't"
+            # would be a confident wrong answer: a real scan reaches further
+            # back than this check does and may well get the quick route.
+            out.append(_check("Scan speed", "info",
+                              "Couldn't tell: no email from the last 30 days carries the headers "
+                              "MailSift reads, so there was nothing to test with. A real scan "
+                              "looks further back and works this out for itself."))
         else:
             out.append(_check("Scan speed", "info",
-                              "Outlook won't send headers individually on this mailbox, so scans "
-                              "fetch all of them and take longer. Nothing is wrong; it's just slower."))
+                              f"Outlook won't send headers individually here ({why}), so scans fetch "
+                              f"all of them, {page:,} emails a request, and take longer. "
+                              "Nothing is wrong."))
     except Exception as exc:
         out.append(_check("Scan speed", "info", f"Couldn't tell ({exc.__class__.__name__})."))
 

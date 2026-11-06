@@ -432,8 +432,8 @@ def create_app(data_dir: Path, port=8765, demo=False, dry_run=False,
                             "total": sum(1 for v in choices.values() if v != "keep")}
         scan = st.last_scan
 
-        def progress(done, total, result=None):
-            st.apply_job.update(done=done, total=total)
+        def progress(done, total, result=None, note=None):
+            st.apply_job.update(done=done, total=total, note=note)
             if result is not None:
                 st.apply_job["results"].append(result)
 

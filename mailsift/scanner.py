@@ -27,7 +27,6 @@ SELECT = "id,from,receivedDateTime,isRead,parentFolderId,internetMessageHeaders"
 # MailSift reads, which is most of the payload saved.
 SELECT_LIGHT = "id,from,receivedDateTime,isRead,parentFolderId"
 WORKERS = 4                       # Outlook allows 4 concurrent requests per mailbox per app
-PAGE_SIZE = 50                    # headers are chunky; bigger pages risk gateway timeouts
 SENT_LIMIT = 2000                 # newest sent emails checked for "have you written to them"
 FMT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -77,7 +76,7 @@ class ScanResult:
 
 
 class Scanner:
-    def __init__(self, graph, store, page_size=PAGE_SIZE, workers=WORKERS, now=None):
+    def __init__(self, graph, store, page_size=None, workers=WORKERS, now=None):
         self.graph = graph
         self.store = store
         self.page_size = page_size
@@ -109,8 +108,11 @@ class Scanner:
         if total is not None:
             log(f"mailbox reports {total:,} emails in range")
 
-        # Checked against this mailbox, once, before any window is read.
-        cheap = self.graph.cheap_headers_work(start.strftime(FMT))
+        # Asked of this mailbox, once, before any window is read: how it
+        # will let the scan request messages decides most of the time taken.
+        cheap, page_size, _why = self.graph.probe_scan_query(start.strftime(FMT))
+        if self.page_size is not None:
+            page_size = self.page_size          # pinned by a caller or a test
 
         now = self.now()
         state = {
@@ -130,7 +132,7 @@ class Scanner:
             a, b = window
             params = {
                 "$select": SELECT_LIGHT if cheap else SELECT,
-                "$top": str(self.page_size), "$orderby": "receivedDateTime desc",
+                "$top": str(page_size), "$orderby": "receivedDateTime desc",
                 "$filter": f"receivedDateTime ge {a.strftime(FMT)} and receivedDateTime lt {b.strftime(FMT)}",
             }
             if cheap:
