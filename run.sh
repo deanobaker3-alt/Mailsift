@@ -6,6 +6,10 @@ if [ ! -d .venv ]; then
     echo "Setting up MailSift for the first time..."
     python3 -m venv .venv
     .venv/bin/python -m pip install --upgrade pip >/dev/null
-    .venv/bin/python -m pip install -r requirements.txt
+    # The hash-pinned lock, not requirements.txt: SECURITY.md promises every
+    # dependency is installed with --require-hashes, and this is the script
+    # most people run. Runtime deps only; the build and test tools live in
+    # requirements.lock.
+    .venv/bin/python -m pip install --require-hashes -r requirements-run.lock
 fi
 exec .venv/bin/python -m mailsift "$@"

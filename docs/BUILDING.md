@@ -39,7 +39,7 @@ Put your client ID on its own line in `mailsift/client_id.txt` (and optionally a
 ### From source (any OS, for development)
 
 ```
-pip install --require-hashes -r requirements.lock
+pip install --require-hashes -r requirements.lock   # or requirements-run.lock to just run it
 python -m mailsift --demo        # pretend mailbox, no sign-in
 python -m mailsift --dry-run     # real mailbox, changes nothing
 python -m pytest -q              # tests
@@ -55,14 +55,23 @@ Other options: `--no-browser` (print a one-time link), `--stay` (don't auto-exit
 
 ## 4. Updating dependencies
 
-`requirements.txt` holds the app's direct dependencies and `requirements-build.txt` adds the build and test tools. **`requirements.lock` is what actually gets installed**: every package, including indirect ones, pinned to an exact version and hash.
+`requirements.txt` holds the app's direct dependencies and `requirements-build.txt` adds the build and test tools. Neither is installed directly. **Two lock files are what actually get installed**, each pinning every package, including indirect ones, to an exact version and hash:
 
-After changing either input file, regenerate the lock:
+| Lock | Built from | Used by |
+|---|---|---|
+| `requirements-run.lock` | `requirements.txt` | `run.sh`, `run.bat` — running from source |
+| `requirements.lock` | `requirements-build.txt` | CI, `build_exe.bat` — building and testing |
+
+Running from source doesn't need PyInstaller, so it gets the smaller one; both are installed with `--require-hashes`.
+
+After changing either input file, regenerate both locks:
 
 ```
 pip install uv
 uv pip compile --generate-hashes --universal --python-version 3.12 \
     --output-file requirements.lock requirements-build.txt
+uv pip compile --generate-hashes --universal --python-version 3.12 \
+    --output-file requirements-run.lock requirements.txt
 ```
 
 Then re-run the tests. Dependabot raises pull requests when something needs updating.

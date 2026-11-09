@@ -95,3 +95,35 @@ def test_every_module_appears_in_the_code_map():
         if path.name.startswith("__"):
             continue
         assert path.name in mapped, f"{path.name} is missing from the code map"
+
+
+def test_every_install_script_uses_the_hash_pinned_lock():
+    """SECURITY.md says every dependency is "installed with --require-hashes".
+    run.sh and run.bat installed from requirements.txt instead -- unpinned,
+    unhashed -- and they are the scripts a person running from source
+    actually uses. OpenSSF Scorecard found it; the first version of this
+    file did not, because it only looked at Python modules.
+    """
+    import re as _re
+    for name in ("run.sh", "run.bat", "build_exe.bat"):
+        script = (ROOT / name).read_text(encoding="utf-8")
+        installs = _re.findall(r"pip install[^\n]*-r\s+(\S+)", script)
+        assert installs, f"{name} installs nothing?"
+        for target in installs:
+            assert target.endswith(".lock"), f"{name} installs from {target}, not a lock file"
+        for line in script.splitlines():
+            if "pip install" in line and "-r " in line:
+                assert "--require-hashes" in line, f"{name} installs without --require-hashes:\n  {line.strip()}"
+
+
+def test_the_runtime_lock_covers_what_the_app_imports():
+    """requirements-run.lock exists so someone running from source gets
+    hashes without also pulling PyInstaller. It must still hold every
+    runtime dependency."""
+    direct = [l.split("==")[0].strip().lower()
+              for l in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+              if l.strip() and not l.startswith("#")]
+    locked = (ROOT / "requirements-run.lock").read_text(encoding="utf-8").lower()
+    for package in direct:
+        assert f"\n{package}==" in f"\n{locked}", f"{package} is missing from requirements-run.lock"
+    assert "pyinstaller" not in locked, "the runtime lock should not drag in the build tools"

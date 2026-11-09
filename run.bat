@@ -5,7 +5,9 @@ if not exist .venv (
     echo Setting up MailSift for the first time...
     py -3 -m venv .venv || python -m venv .venv
     .venv\Scripts\python -m pip install --upgrade pip >nul
-    .venv\Scripts\python -m pip install -r requirements.txt
+    rem The hash-pinned lock, not requirements.txt: SECURITY.md promises every
+    rem dependency is installed with --require-hashes.
+    .venv\Scripts\python -m pip install --require-hashes -r requirements-run.lock
 )
 .venv\Scripts\python -m mailsift %*
 pause

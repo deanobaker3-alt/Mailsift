@@ -16,7 +16,13 @@ from mailsift.classify import lookalike_brand, registrable_domain
 from mailsift.headers import (MAX_HEADER, emails_in, has_one_click, normalise_address,
                               parse_auth_results, parse_list_unsubscribe, parse_mailto)
 
-BUDGET = 0.25   # seconds: generous, but ~200x under the old worst case
+# Seconds. Deliberately loose. This started at 0.25 and flaked the moment it
+# ran next to a busy pip install, and a shared CI runner is busier than that.
+# The bug it guards took 48 seconds, so 2 s still catches it twenty-four
+# times over while leaving enough headroom that a slow machine can't turn a
+# green build red. The shape of the cost is checked separately, below, which
+# is the part that actually detects a return of the bug.
+BUDGET = 2.0
 
 
 def hostile():
