@@ -5,7 +5,9 @@ cd /d "%~dp0"
 if not exist .build-venv (
     py -3 -m venv .build-venv || python -m venv .build-venv
 )
-.build-venv\Scripts\python -m pip install --upgrade pip >nul
+rem No "pip install --upgrade pip" here on purpose: that fetches pip
+rem itself unpinned, and pip is what enforces --require-hashes on
+rem everything else. The bundled pip is new enough.
 rem --require-hashes: refuses any package whose hash isn't in the lock file.
 .build-venv\Scripts\python -m pip install --require-hashes -r requirements.lock || goto :fail
 

@@ -112,8 +112,15 @@ def test_every_install_script_uses_the_hash_pinned_lock():
         for target in installs:
             assert target.endswith(".lock"), f"{name} installs from {target}, not a lock file"
         for line in script.splitlines():
-            if "pip install" in line and "-r " in line:
-                assert "--require-hashes" in line, f"{name} installs without --require-hashes:\n  {line.strip()}"
+            stripped = line.strip()
+            if stripped.startswith(("#", "rem ")) or "pip install" not in stripped:
+                continue
+            # Every install, not just the ones with -r. "pip install --upgrade
+            # pip" fetches pip itself unpinned, and pip is what enforces
+            # --require-hashes on everything after it: the worst single
+            # package to leave unpinned. Scorecard flagged exactly that.
+            assert "--require-hashes" in stripped, (
+                f"{name} has an unpinned install:\n  {stripped}")
 
 
 def test_the_runtime_lock_covers_what_the_app_imports():
