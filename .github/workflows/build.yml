@@ -87,6 +87,33 @@ jobs:
         run: |
           python -c "from mailsift.app import bundled_client_id; import sys; sys.exit(0 if bundled_client_id() else 'No client ID - set the MAILSIFT_CLIENT_ID variable or edit mailsift/client_id.txt')"
 
+      # The step above only proves a client ID is PRESENT and GUID-shaped. A
+      # placeholder passes both, and v2.4.0 shipped that way: every check went
+      # green and nobody could sign in, because the ID belonged to no app.
+      # Microsoft is the only thing that can tell a real client ID from a
+      # well-formed fake, so ask it. Fails only on a definite "no such client";
+      # if Microsoft can't be reached, it warns and lets the build through.
+      - name: Check Microsoft recognises the client ID
+        shell: pwsh
+        run: |
+          $id = (python -c "from mailsift.app import bundled_client_id; print(bundled_client_id() or '')").Trim()
+          if (-not $id) { throw "No client ID is built in" }
+          $url = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" +
+                 "?client_id=$id&response_type=code&redirect_uri=http%3A%2F%2Flocalhost&scope=openid"
+          try {
+            $response = Invoke-WebRequest -Uri $url -MaximumRedirection 0 -SkipHttpErrorCheck -TimeoutSec 20
+            $body = [string]$response.Content
+          } catch {
+            Write-Host "::warning::Could not reach Microsoft to check the client ID ($($_.Exception.Message)). Skipping."
+            exit 0
+          }
+          if ($body -match "unauthorized_client" -or $body -match "client does not exist") {
+            throw ("Microsoft does not recognise client ID $id. " +
+                   "MAILSIFT_CLIENT_ID must be the Application (client) ID from the app " +
+                   "registration's Overview page - not an example from the docs.")
+          }
+          Write-Host "Microsoft recognises the client ID."
+
       - name: Build MailSift.exe
         run: |
           python tools/make_version_info.py
