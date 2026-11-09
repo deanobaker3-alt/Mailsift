@@ -149,7 +149,6 @@ def classify(*, address, display_name, auth, one_click, https, http, mailto, jun
     reasons: list[str] = []
     domain = address.rsplit("@", 1)[-1].lower() if "@" in address else ""
     reg = registrable_domain(domain) if domain else ""
-    label = reg.split(".")[0] if reg else ""
     tld = reg.rsplit(".", 1)[-1] if "." in reg else ""
 
     dmarc, dkim, compauth = auth.get("dmarc"), auth.get("dkim"), auth.get("compauth")

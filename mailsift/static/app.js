@@ -120,7 +120,6 @@
 
   const fmt = (n) => Number(n || 0).toLocaleString('en-GB');
   const plural = (n, word) => (Number(n) === 1 ? word : `${word}s`);
-  const pct = (n, d) => (d ? Math.min(100, Math.round((100 * n) / d)) : 0);
 
   // ------------------------------------------------------------ animation
   // The app only reports progress every ~half second. Everything on screen is

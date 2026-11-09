@@ -166,6 +166,7 @@ def test_pinned_connection_still_rejects_a_certificate_for_another_name(tmp_path
 
     server = HTTPServer(("127.0.0.1", 0), Quiet)
     server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.minimum_version = ssl.TLSVersion.TLSv1_2   # match what netguard requires
     server_ctx.load_cert_chain(cert_file, key_file)
     server.socket = server_ctx.wrap_socket(server.socket, server_side=True)
     port = server.server_address[1]
