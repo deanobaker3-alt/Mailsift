@@ -53,6 +53,8 @@ Then:
 
 **You need:** Windows 10 or 11, and a **Hotmail, Outlook.com, Live or MSN** address. Gmail and work/school accounts aren't supported.
 
+*On a Mac, Linux box or Raspberry Pi?* There's no ready-made download, but it runs from the source: clone this repo and run `./run.sh --demo`. See [docs/BUILDING.md](docs/BUILDING.md).
+
 **Two warnings you'll see** (because it's a free hobby project, not a big-company app):
 - **Windows SmartScreen**: "Windows protected your PC". Click **More info → Run anyway**.
 - **Microsoft's consent screen** says the app is **unverified**. Check the permissions it asks for (below), then **Accept**.
@@ -102,7 +104,7 @@ Each release also includes **`MailSift-sbom.json`**, a full parts list of everyt
 
 ## FAQ
 
-**Does it work on my phone?** Not directly; it's Windows-only for now. But everything it does happens inside Outlook.com, so once you've run it on a PC, your phone's mail app shows the cleaner inbox too.
+**Does it work on my phone?** Not directly; it needs a computer. But everything it does happens inside Outlook.com, so once you've run it on one, your phone's mail app shows the cleaner inbox too.
 
 **Can it delete my emails?** No. It only *moves* mail (to Deleted Items or Junk), and **undo** reverses your last clean-up. Unsubscribes can't be undone, because the request has already gone to the sender.
 
