@@ -148,5 +148,22 @@ jobs:
           \`\`\`
           should print \`$HASH\`.
           NOTES
-          gh release create "$TAG" --repo "$REPO" --title "MailSift $TAG" --notes-file notes.md --generate-notes \
-            dist/MailSift.exe dist/MailSift.exe.sha256 dist/USER_GUIDE.txt dist/MailSift-sbom.json
+          # Two ways a tag gets here: pushed from a clone, or created by
+          # "Draft a new release" on github.com, which makes the release at
+          # the same moment. In the second case "create" would fail and the
+          # build's own .exe would never get attached, which is the one
+          # thing this job exists to do. So: attach either way, and leave
+          # notes written by hand alone.
+          FILES="dist/MailSift.exe dist/MailSift.exe.sha256 dist/USER_GUIDE.txt dist/MailSift-sbom.json"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists: attaching the build to it."
+            gh release upload "$TAG" --repo "$REPO" --clobber $FILES
+            if [ -z "$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' | tr -d '[:space:]')" ]; then
+              gh release edit "$TAG" --repo "$REPO" --notes-file notes.md
+            fi
+          else
+            gh release create "$TAG" --repo "$REPO" --title "MailSift $TAG" \
+              --notes-file notes.md --generate-notes $FILES
+          fi
+          echo "### MailSift.exe SHA-256
+          \`$HASH\`" >> "$GITHUB_STEP_SUMMARY"
