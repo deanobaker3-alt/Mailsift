@@ -108,7 +108,9 @@ def check_secure_connections(net: Network, host=TLS_CHECK_HOST) -> list[dict]:
     # If not, something on this machine or network is re-signing HTTPS.
     inspected = False
     try:
-        net.handshake(ip, host, ssl.create_default_context(cafile=certifi.where()))
+        certifi_only = ssl.create_default_context(cafile=certifi.where())
+        certifi_only.minimum_version = ssl.TLSVersion.TLSv1_2
+        net.handshake(ip, host, certifi_only)
     except ssl.SSLCertVerificationError:
         inspected = True
     except (ssl.SSLError, OSError):

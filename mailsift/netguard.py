@@ -75,6 +75,12 @@ def _trust_store() -> ssl.SSLContext:
     context = ssl.create_default_context()      # loads the OS trust store
     context.check_hostname = True
     context.verify_mode = ssl.CERT_REQUIRED
+    # Today's Python already defaults to this, so it changes nothing now.
+    # It is set anyway because the floor should be stated by this code
+    # rather than inherited from whatever runtime happens to load it, and
+    # because a reader checking the claims in SECURITY.md should be able to
+    # see the version floor here instead of inferring it.
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     try:
         context.load_verify_locations(cafile=certifi.where())
     except OSError:                              # certifi missing: OS roots still apply
