@@ -9,7 +9,7 @@
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-49E3FF)](#download)
 [![Mailbox: Microsoft only](https://img.shields.io/badge/mailbox-Microsoft%20accounts%20only-FFB454)](#will-it-work-with-my-email)
 
-### Works with Hotmail, Outlook.com, Live and MSN addresses — **not Gmail**
+**Hotmail · Outlook.com · Live · MSN** — Microsoft accounts only. [Not Gmail.](#will-it-work-with-my-email)
 
 **[⬇ Download the latest release](https://github.com/deanobaker3-alt/Mailsift/releases/latest)**
 
@@ -115,13 +115,21 @@ Only if it's a **Microsoft personal account**: a `@hotmail.*`, `@outlook.*`, `@l
 
 If you sign in and get *"you can't sign in here with a work or school account"*, that's this, and it isn't something you can work around at your end.
 
-**Does it work on my phone?** Not directly; it needs a computer. But everything it does happens inside Outlook.com, so once you've run it on one, your phone's mail app shows the cleaner inbox too.
+### Does it work on my phone?
 
-**Can it delete my emails?** No. It only *moves* mail (to Deleted Items or Junk), and **undo** reverses your last clean-up. Unsubscribes can't be undone, because the request has already gone to the sender.
+Not directly; it needs a computer. But everything it does happens inside Outlook.com, so once you've run it on one, your phone's mail app shows the cleaner inbox too.
 
-**Will it touch my personal emails?** No. It only looks at mailing-list mail (anything with an unsubscribe header). Emails from people never appear.
+### Can it delete my emails?
 
-**Is it safe to try?** Run `MailSift.exe --dry-run` from a command prompt: it scans your real mailbox but changes nothing. Or `--demo` for a pretend mailbox.
+No. It only *moves* mail (to Deleted Items or Junk), and **undo** reverses your last clean-up. Unsubscribes can't be undone, because the request has already gone to the sender.
+
+### Will it touch my personal emails?
+
+No. It only looks at mailing-list mail (anything with an unsubscribe header). Emails from people never appear.
+
+### Is it safe to try?
+
+Run `MailSift.exe --dry-run` from a command prompt: it scans your real mailbox but changes nothing. Or `--demo` for a pretend mailbox.
 
 ## Security
 
