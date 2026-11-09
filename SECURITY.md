@@ -56,7 +56,7 @@ obvious** and **having nothing worth stealing inside**:
 - **Provenance you can check:** official builds come with a signed
   build-provenance attestation, proving the exact .exe was built by this
   repo's GitHub workflow from a specific commit. With the GitHub CLI:
-  `gh attestation verify MailSift.exe --repo deanobaker3-alt/mailsift`.
+  `gh attestation verify MailSift.exe --repo deanobaker3-alt/Mailsift`.
   The .exe's Properties → Details tab also carries the product name, version
   and copyright.
 - **Only download official releases** from this repo's Releases page. A copy

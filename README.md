@@ -4,11 +4,11 @@
 
 **Clear the newsletter and junk pile-up out of your Hotmail / Outlook.com in a couple of minutes, safely and privately.**
 
-[![Build](https://github.com/deanobaker3-alt/mailsift/actions/workflows/build.yml/badge.svg)](https://github.com/deanobaker3-alt/mailsift/actions/workflows/build.yml)
+[![Build](https://github.com/deanobaker3-alt/Mailsift/actions/workflows/build.yml/badge.svg)](https://github.com/deanobaker3-alt/Mailsift/actions/workflows/build.yml)
 [![Licence: PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial-6DFF7A)](LICENSING.md)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-49E3FF)](#download)
 
-**[⬇ Download the latest release](https://github.com/deanobaker3-alt/mailsift/releases/latest)**
+**[⬇ Download the latest release](https://github.com/deanobaker3-alt/Mailsift/releases/latest)**
 
 ![MailSift start screen](docs/screenshots/1-start.png)
 
@@ -47,7 +47,7 @@ Then:
 
 ## Download
 
-1. Get **MailSift.exe** from the **[latest release](https://github.com/deanobaker3-alt/mailsift/releases/latest)**. Read `USER_GUIDE.txt` there too if you like.
+1. Get **MailSift.exe** from the **[latest release](https://github.com/deanobaker3-alt/Mailsift/releases/latest)**. Read `USER_GUIDE.txt` there too if you like.
 2. Double-click it. Your browser opens on MailSift.
 3. **Sign in with Microsoft**, then scan, choose and apply.
 
@@ -81,7 +81,7 @@ certutil -hashfile MailSift.exe SHA256
 The result should match `MailSift.exe.sha256` on the release. With the [GitHub CLI](https://cli.github.com/) you can also confirm it was built by this repo's workflow:
 
 ```
-gh attestation verify MailSift.exe --repo deanobaker3-alt/mailsift
+gh attestation verify MailSift.exe --repo deanobaker3-alt/Mailsift
 ```
 
 Each release also includes **`MailSift-sbom.json`**, a full parts list of everything bundled inside.
@@ -91,6 +91,12 @@ Each release also includes **`MailSift-sbom.json`**, a full parts list of everyt
 | Scanning | Confirming | Done |
 |---|---|---|
 | ![Scanning](docs/screenshots/2-scanning.png) | ![Confirm](docs/screenshots/4-confirm.png) | ![Stage clear](docs/screenshots/5-stage-clear.png) |
+
+### The other two looks
+
+| Ops console | Blueprint |
+|---|---|
+| ![Ops console theme](docs/screenshots/6-ops-console.png) | ![Blueprint theme](docs/screenshots/7-blueprint.png) |
 
 *Shown in demo mode with a pretend mailbox: try it yourself with `MailSift.exe --demo`.*
 
