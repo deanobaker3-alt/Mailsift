@@ -63,7 +63,9 @@ obvious** and **having nothing worth stealing inside**:
   from anywhere else might be modified; the checksum and attestation will
   tell you.
 - **See exactly what's inside:** every release ships `MailSift-sbom.json`, a
-  CycloneDX parts list of every bundled component and version.
+  CycloneDX parts list of every bundled Python component and its version.
+  (It is generated from the dependency lock, so it covers the code; the four
+  bundled fonts are listed in `LICENSING.md` instead.)
 - **Licence:** dual-licensed (PolyForm Noncommercial + commercial, see
   `LICENSING.md`). Free copies must keep the copyright notice, and nobody but
   the copyright holder may sell it.

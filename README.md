@@ -7,6 +7,9 @@
 [![Build](https://github.com/deanobaker3-alt/Mailsift/actions/workflows/build.yml/badge.svg)](https://github.com/deanobaker3-alt/Mailsift/actions/workflows/build.yml)
 [![Licence: PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial-6DFF7A)](LICENSING.md)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-49E3FF)](#download)
+[![Mailbox: Microsoft only](https://img.shields.io/badge/mailbox-Microsoft%20accounts%20only-FFB454)](#will-it-work-with-my-email)
+
+### Works with Hotmail, Outlook.com, Live and MSN addresses — **not Gmail**
 
 **[⬇ Download the latest release](https://github.com/deanobaker3-alt/Mailsift/releases/latest)**
 
@@ -103,6 +106,14 @@ Each release also includes **`MailSift-sbom.json`**, a full parts list of everyt
 *Shown in demo mode with a pretend mailbox: try it yourself with `MailSift.exe --demo`.*
 
 ## FAQ
+
+### Will it work with my email?
+
+Only if it's a **Microsoft personal account**: a `@hotmail.*`, `@outlook.*`, `@live.*` or `@msn.*` address, or any other address you sign into with a personal Microsoft account.
+
+**Gmail, Yahoo, iCloud, Proton and work or school accounts are not supported.** MailSift talks to Microsoft Graph, which is Microsoft's own mail API, so there's nothing for it to talk to on another provider. A work or school Microsoft 365 account won't work either: those need an administrator to approve the app, and MailSift is deliberately registered for personal accounts only.
+
+If you sign in and get *"you can't sign in here with a work or school account"*, that's this, and it isn't something you can work around at your end.
 
 **Does it work on my phone?** Not directly; it needs a computer. But everything it does happens inside Outlook.com, so once you've run it on one, your phone's mail app shows the cleaner inbox too.
 

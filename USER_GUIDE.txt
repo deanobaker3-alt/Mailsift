@@ -10,7 +10,7 @@ Works with: Hotmail, Outlook.com, Live and MSN email addresses.
 2. Your web browser opens on MailSift. Click "sign in with microsoft" and sign in
    with your email. Microsoft will ask if MailSift can access your mail. Click "Accept".
 
-3. Choose how far back to look and click "run scan".
+3. Choose how far back to look and click "start scan".
 
 4. For each sender, pick keep, unsub, unsub+purge (also tidies away their old emails)
    or block. Or click "smart pick" to do the obvious ones for you.
@@ -34,8 +34,9 @@ Works with: Hotmail, Outlook.com, Live and MSN email addresses.
 
 Good to know
 ------------
-- Only use a copy of MailSift.exe from the official Releases page (or straight
-  from Dean). Don't run one someone else has passed on.
+- Only use a copy of MailSift.exe from the official Releases page on GitHub.
+  Don't run one someone else has passed on: check the SHA-256 on the release
+  page matches yours if you're not sure.
 - MailSift never sees your password. You sign in on Microsoft's own page.
 - It runs on your computer only. Your emails don't go to anyone, including whoever
   gave you this app. It only reads the "envelope" of each email, never what's inside.

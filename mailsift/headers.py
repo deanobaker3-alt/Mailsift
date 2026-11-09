@@ -4,9 +4,29 @@ from __future__ import annotations
 import re
 from urllib.parse import unquote, urlsplit
 
-_ANGLE = re.compile(r"<([^>]*)>")
+# Bounded for the same reason as _EMAIL below. With a plain "*" inside, a
+# header of unclosed "<" makes the engine scan to the end from every one of
+# them: 20,000 of them took 1.5 seconds, and List-Unsubscribe is written by
+# the sender. 2048 is well past the longest real unsubscribe URL.
+_ANGLE = re.compile(r"<([^>]{0,2048})>")
 _AUTH = re.compile(r"\b(spf|dkim|dmarc|compauth)\s*=\s*([a-zA-Z]+)", re.IGNORECASE)
-_EMAIL = re.compile(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+")
+# Bounded on purpose. With plain "+" on both sides of the @, a long run of
+# characters containing no @ makes the engine rescan from every position:
+# a 100,000-character From header took 48 seconds to reject, and a sender
+# chooses that header.
+#
+# The bounds are deliberately NOT the RFC's. Tried RFC 5321's 64-character
+# local part first and it rejected a real Mailchimp unsubscribe address,
+# which uses 66. Bulk senders encode a subscriber id in the local part and
+# are not reading the spec. 256 keeps the match linear, which is the whole
+# point, with room for anything an ESP is plausibly going to do.
+_EMAIL = re.compile(r"[^@\s,;<>]{1,256}@[^@\s,;<>]{1,255}\.[^@\s,;<>]{1,63}")
+
+# Belt and braces for the same attack. A header this long is not hiding a
+# real address, it is trying to make the matcher work. Refused outright
+# rather than truncated: a truncated match would be a *different* address,
+# and these go into inbox rules.
+MAX_HEADER = 4096
 
 
 def header_map(headers) -> dict[str, list[str]]:
@@ -26,7 +46,7 @@ def first(hmap, name):
 
 def parse_list_unsubscribe(value) -> list[str]:
     """RFC 2369: one or more <uri> entries, possibly folded over several lines."""
-    if not value:
+    if not value or len(value) > MAX_HEADER:
         return []
     return [re.sub(r"\s+", "", raw) for raw in _ANGLE.findall(value) if raw.strip()]
 
@@ -121,7 +141,10 @@ def normalise_address(value) -> str:
 
     Returns "" for anything with no usable address in it.
     """
-    match = _EMAIL.search((value or "").strip())
+    text = (value or "").strip()
+    if len(text) > MAX_HEADER:
+        return ""
+    match = _EMAIL.search(text)
     return match.group(0).lower() if match else ""
 
 

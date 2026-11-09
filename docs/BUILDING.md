@@ -96,6 +96,8 @@ mailsift/
   graph.py      Microsoft Graph client: per-thread sessions, Retry-After back-off, $batch, token-leak guard
   headers.py    List-Unsubscribe / Authentication-Results / mailto parsing
   classify.py   one-click / mailto / web form / unverified / suspicious decisions
+  score.py      the 0-100 junk score: pure, no I/O, property-tested
+  company.py    groups senders by the company behind them, not the address
   scanner.py    parallel date-window scan, grouping, ignored-unsubscribe detection
   actions.py    unsubscribe, purge, block, undo
   blocklist.py  the merged "MailSift blocklist" inbox rule(s)
@@ -103,8 +105,10 @@ mailsift/
   store.py      local SQLite: history, undo data, never-touch list
   launcher.py   single instance, port choice, launcher secret
   app.py        local Flask app: session lock, CSRF, CSP
+  diagnostics.py "check my setup": proves each dependency really works here
   demo.py       pretend mailbox for --demo
-  static/       the UI: retro arcade theme, original pixel art, bundled OFL fonts
+  static/       the UI: three themes (retro / ops console / blueprint),
+                original pixel art, bundled OFL fonts
 tests/          unit + app tests (pytest)
 tools/          build helpers
 ```

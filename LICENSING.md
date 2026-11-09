@@ -20,6 +20,15 @@ Want to sell it, rebrand it, bundle it, or use it at work? A commercial licence 
 
 ## Third-party components
 
-MailSift.exe bundles Python, Flask, MSAL, requests, urllib3, certifi and their dependencies, which stay under their own (permissive) licences, plus the **Press Start 2P** and **VT323** fonts under the SIL Open Font License 1.1 (see [`mailsift/static/fonts/OFL.txt`](mailsift/static/fonts/OFL.txt)).
+MailSift.exe bundles Python, Flask, MSAL, requests, urllib3, certifi and their dependencies, which stay under their own (permissive) licences. Each release also ships `MailSift-sbom.json`, a CycloneDX parts list of every Python component and its version.
+
+Four typefaces are bundled, all under the **SIL Open Font License 1.1**, unmodified:
+
+| Font | Used by | Licence |
+|---|---|---|
+| Press Start 2P | retro theme | [`OFL.txt`](mailsift/static/fonts/OFL.txt) |
+| VT323 | retro theme | [`OFL.txt`](mailsift/static/fonts/OFL.txt) |
+| IBM Plex Sans / Mono | ops console theme | [`OFL-ibm-plex.txt`](mailsift/static/fonts/OFL-ibm-plex.txt) |
+| B612 / B612 Mono | blueprint theme | [`OFL-b612.txt`](mailsift/static/fonts/OFL-b612.txt) |
 
 *This page is a plain-English summary; `LICENSE.md` is what actually applies.*
